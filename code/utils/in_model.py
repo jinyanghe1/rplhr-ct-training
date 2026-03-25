@@ -6,8 +6,28 @@ from copy import deepcopy
 from config import opt
 from builtins import range
 
+# 导入数据增强模块
+from .augmentation import CTVolumetricAugmentation, normalize_ct, clip_ct_values
+
 ################################## for data ##################################
 def get_train_img(img_path, case_name):
+    """
+    加载训练数据并应用增强
+    
+    流程:
+        1. 加载LR (5mm) 和 HR (1mm) NIfTI文件
+        2. 随机裁剪patch
+        3. 应用数据增强 (空间变换、强度变换、噪声)
+        4. 可选：CT值归一化/裁剪
+    
+    Args:
+        img_path: 数据根目录
+        case_name: 病例名称
+        
+    Returns:
+        crop_img: 增强后的LR patch
+        crop_mask: 对应的HR patch
+    """
     case_mask_path = os.path.join(img_path, 'train', '1mm', case_name + '.nii.gz')
     tmp_mask = sitk.GetArrayFromImage(sitk.ReadImage(case_mask_path))
 
@@ -29,9 +49,44 @@ def get_train_img(img_path, case_name):
 
     crop_mask = tmp_mask[mask_z_s: mask_z_e, y_s:y_e, x_s:x_e]
 
+    # 保留原有的镜像增强（向后兼容）
     if opt.mirror and np.random.uniform() <= 0.3:
         crop_img = crop_img[:, :, ::-1].copy()
         crop_mask = crop_mask[:, :, ::-1].copy()
+    
+    # ==================== 新增：数据增强 ====================
+    # 检查是否启用新的增强pipeline
+    if hasattr(opt, 'use_augmentation') and opt.use_augmentation:
+        # 初始化增强器
+        aug = CTVolumetricAugmentation(
+            prob=opt.aug_prob if hasattr(opt, 'aug_prob') else 0.5
+        )
+        
+        # 获取增强配置（如果提供）
+        aug_config = getattr(opt, 'aug_config', None)
+        
+        # 应用训练增强
+        crop_img, crop_mask = aug.apply_train_augmentation(
+            crop_img, crop_mask, aug_config=aug_config
+        )
+        
+        # 可选：CT值裁剪（推荐）
+        if hasattr(opt, 'clip_ct') and opt.clip_ct:
+            crop_img, crop_mask = clip_ct_values(
+                crop_img, crop_mask,
+                min_hu=getattr(opt, 'min_hu', -1024),
+                max_hu=getattr(opt, 'max_hu', 3071)
+            )
+        
+        # 可选：归一化到[0,1]
+        if hasattr(opt, 'normalize_ct') and opt.normalize_ct:
+            crop_img, crop_mask = normalize_ct(
+                crop_img, crop_mask,
+                window_center=getattr(opt, 'window_center', 0),
+                window_width=getattr(opt, 'window_width', 1000)
+            )
+    
+    # ==================== 增强结束 ====================
 
     return crop_img, crop_mask
 

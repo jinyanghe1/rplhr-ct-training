@@ -1,0 +1,126 @@
+########## spec_config ##########
+
+### Xuanwu Dataset Configuration (宣武数据集配置)
+### 50 Epochs with Conservative Augmentation (50轮训练，保守增强)
+
+# 这里的项必须在参数里写明
+net_idx = None
+path_key = None
+
+# data & file path
+# 这两项不需要定义，根据 path_key 得到
+path_img = None
+
+# loss
+loss_f = 'L1'
+
+### data
+dim = 1
+ratio = 5  # 保持与模型架构兼容，实际数据比例为4:1，通过采样适配
+
+### Task based model design
+### TVSRN
+# global config
+T_mlp = 4
+T_pos = True
+
+# Encoder config
+TE_c = 8
+TE_l = 1
+TE_d = 4
+TE_n = 8
+TE_w = 8
+TE_p = 8
+
+# Decoder config
+TD_p = 8
+TD_s = 1
+
+TD_Tw = 4
+TD_Tl = 1
+TD_Td = 4
+
+TD_Iw = 8
+TD_Il = 2
+TD_Id = 4
+TD_n = 8
+
+########## common_config ##########
+**** hardware config ****
+gpu_idx = 0
+*************************
+
+**** mode ****
+mode = 'train'
+***********************************
+
+**** 网络部分 ****
+pre_train = False
+
+***********************************
+
+**** train & val config ****
+# train set - 50 epochs for Xuanwu Dataset
+epoch = 50
+start_epoch = 1
+gap_epoch = 200
+
+# dataloader set
+# batch balance
+train_bs = 1
+num_workers = 4
+val_bs = 1
+test_num_workers = 4
+***********************************
+
+**** data config ****
+c_z = 4
+c_y = 256
+c_x = 256
+
+v_crop = True
+vc_z = 4
+vc_y = 256
+vc_x = 256
+
+mirror = False
+***********************************
+
+**** optimizer config ****
+# 优化器选择及不同优化器的相关参数
+optim = 'AdamW'
+wd = 0.0001
+lr = 0.0003
+flood = False
+gap_val = 5
+
+# 学习率策略及不同学习率策率的相关参数
+patience = 15
+cos_lr = False
+Tmax = 20
+lr_gap = 1000
+cycle_r = False
+Tmin = False
+***********************************
+
+**** Data Augmentation (保守增强配置) ****
+# 启用数据增强
+use_augmentation = True
+
+# 增强操作的基础概率
+aug_prob = 0.5
+
+# CT值裁剪设置
+clip_ct = True
+min_hu = -1024
+max_hu = 3071
+
+# 归一化设置（默认关闭，保持原始HU值）
+normalize_ct = False
+window_center = 0
+window_width = 1000
+***********************************
+
+**** model config ****
+save_log = False
+***********************************

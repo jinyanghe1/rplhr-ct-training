@@ -14,7 +14,7 @@ loss_f = 'L1'
 
 ### data
 dim = 1
-ratio = 5
+ratio = 4
 
 ### Task based model design
 ### TVSRN

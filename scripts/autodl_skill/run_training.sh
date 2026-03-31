@@ -100,7 +100,7 @@ start_training() {
             --clip_ct=True \
             --min_hu=-1024 \
             --max_hu=3071 \
-            --normalize_ct=False \
+            --normalize_ct=True \
             --num_workers=4 \
             --test_num_workers=2 \
             > \"\$LOG_FILE\" 2>&1 & \

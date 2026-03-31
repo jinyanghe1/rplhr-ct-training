@@ -4,15 +4,13 @@
 # 用法: ./scripts/sync_and_train.sh [epochs]
 #===============================================================================
 
-set -e
-
 # 配置
 REMOTE_HOST="connect.westd.seetacloud.com"
 REMOTE_PORT="23086"
 REMOTE_USER="root"
 REMOTE_PASS="Z9wdTD/ZA6fZ"
 REPO_PATH="/root/autodl-tmp/rplhr-ct-training-main"
-EPOCHS="${1:-50}"
+EPOCHS="${1:-5}"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -66,37 +64,44 @@ main() {
     log_info "确认训练脚本..."
     run_ssh "ls -la $REPO_PATH/code/trainxuanwu.py"
 
-    # Step 4: 启动训练
-    log_info "启动训练 ($EPOCHS epochs, 宣武数据集 1:4)..."
-    run_ssh "cd $REPO_PATH/code && \
-        LOG_FILE=\"../train_autodl_\$(date +%Y%m%d_%H%M%S).log\" && \
-        echo \"Log: \$LOG_FILE\" && \
-        nohup python trainxuanwu.py train \
-            --net_idx=xuanwu_50epoch \
-            --path_key=dataset01_xuanwu \
-            --epoch=$EPOCHS \
-            --use_augmentation=True \
-            --aug_prob=0.5 \
-            --clip_ct=True \
-            --min_hu=-1024 \
-            --max_hu=3071 \
-            --normalize_ct=False \
-            --num_workers=4 \
-            --test_num_workers=2 \
-            > \"\$LOG_FILE\" 2>&1 & \
-        echo \"Started: \$(date)\" && \
-        echo \"PID: \$!\""
+    # Step 4: 创建启动脚本（避免复杂的引号问题）
+    log_info "准备训练启动命令..."
+    run_ssh "cat > /tmp/start_train.sh << 'TRAINEOF'
+cd $REPO_PATH/code
+LOG_FILE=\"../train_autodl_\$(date +%Y%m%d_%H%M%S).log\"
+echo \"Log: \$LOG_FILE\"
+nohup python trainxuanwu.py train \
+    --net_idx=xuanwu_50epoch \
+    --path_key=dataset01_xuanwu \
+    --epoch=$EPOCHS \
+    --use_augmentation=True \
+    --aug_prob=0.5 \
+    --clip_ct=True \
+    --min_hu=-1024 \
+    --max_hu=3071 \
+    --normalize_ct=True \
+    --num_workers=4 \
+    --test_num_workers=2 \
+    > \"\$LOG_FILE\" 2>&1 &
+echo \"Training started: \$(date)\"
+echo \"PID: \$!\"
+TRAINEOF
+chmod +x /tmp/start_train.sh"
 
-    # Step 5: 等待启动
+    # Step 5: 执行训练脚本
+    log_info "启动训练 ($EPOCHS epochs, 宣武数据集 1:4)..."
+    run_ssh "/tmp/start_train.sh"
+
+    # Step 6: 等待启动
     sleep 5
 
-    # Step 6: 确认进程运行
+    # Step 7: 确认进程运行
     log_info "确认训练进程..."
     run_ssh "ps aux | grep trainxuanwu | grep -v grep | head -2"
 
-    # Step 7: 查看日志
-    log_info "初始日志 (最后 20 行)..."
-    run_ssh "ls -t $REPO_PATH/train_autodl_*.log 2>/dev/null | head -1 | xargs tail -20 2>/dev/null || echo '日志文件尚未创建'"
+    # Step 8: 查看日志
+    log_info "初始日志 (最后 15 行)..."
+    run_ssh "ls -t $REPO_PATH/train_autodl_*.log 2>/dev/null | head -1 | xargs tail -15 2>/dev/null || echo '日志文件尚未创建'"
 
     echo ""
     log_success "训练已在后台启动!"

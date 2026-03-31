@@ -48,6 +48,9 @@ RuntimeError: shape '[1, 3, 4, 64, 4, 1]' is invalid for input of size 3328
 1. 首先解决 ratio=4 架构适配问题
 2. 只修改本地代码 (model_*.py, trainxuanwu.py, loss.py, config/*.txt 等)
 3. 每次优化后用 `git commit + push`
+4. **⚠️ 重要**: 同步代码到 AutoDL 时，**禁止使用 scp 命令**！scp 会触发授权询问导致阻塞。
+   - 使用 git pull 同步（AutoDL 上的训练代码目录已经是 git 仓库）
+   - 命令: `source /etc/network_turbo && cd /root/autodl-tmp/rplhr-ct-training-main && git pull origin main`
 4. 在 commit message 中说明优化思路和预期改进
 5. 推送后触发 AutoDL 训练验证效果
 

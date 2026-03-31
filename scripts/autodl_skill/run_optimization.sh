@@ -19,9 +19,9 @@ cd "$PROJECT_DIR"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] 开始模型优化..." >> "$LOG_FILE"
 
 # 设置 CLAUDECODE="" 允许嵌套运行 Claude Code
-# (crontab 环境中需要取消当前 session 限制)
+# 使用 --dangerously-skip-permissions 跳过权限检查
 CLAUDECODE="" /Users/hejinyang/.local/bin/claude -p "$(cat "$PROMPT_FILE")" \
-    --dangerously-allow-all-permissions \
+    --dangerously-skip-permissions \
     --output-format text \
     >> "$LOG_FILE" 2>&1
 

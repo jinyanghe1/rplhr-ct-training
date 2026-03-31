@@ -34,7 +34,7 @@ TE_p = 8
 TD_p = 8
 TD_s = 1
 
-TD_Tw = 4
+TD_Tw = 1
 TD_Tl = 1
 TD_Td = 4
 

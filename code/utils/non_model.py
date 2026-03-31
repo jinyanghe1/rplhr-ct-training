@@ -5,10 +5,9 @@ import os
 import sys
 import json
 import random
-from copy import deepcopy
 import torch
 import torch.nn.functional as F
-from torch.autograd import Variable
+import csv
 
 from builtins import range
 import math
@@ -94,6 +93,89 @@ def clear_device_cache(device):
         except Exception:
             pass
 
+def list_paired_cases(path_img, subset, high_res='1mm', low_res='5mm'):
+    """
+    Return sorted case names that exist in both high/low resolution folders.
+    """
+    high_dir = os.path.join(path_img, subset, high_res)
+    low_dir = os.path.join(path_img, subset, low_res)
+
+    if not os.path.isdir(high_dir) or not os.path.isdir(low_dir):
+        return [], [], []
+
+    high_cases = {f[:-7] for f in os.listdir(high_dir) if f.endswith('.nii.gz')}
+    low_cases = {f[:-7] for f in os.listdir(low_dir) if f.endswith('.nii.gz')}
+
+    common_cases = sorted(high_cases & low_cases)
+    high_only = sorted(high_cases - low_cases)
+    low_only = sorted(low_cases - high_cases)
+    return common_cases, high_only, low_only
+
+def save_metric_history(metric_history, save_dir):
+    os.makedirs(save_dir, exist_ok=True)
+
+    json_path = os.path.join(save_dir, 'metrics.json')
+    with open(json_path, 'w') as f:
+        json.dump(metric_history, f, indent=2)
+
+    csv_path = os.path.join(save_dir, 'metrics.csv')
+    if len(metric_history) == 0:
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['epoch', 'lr', 'train_loss', 'val_psnr', 'val_ssim', 'epoch_sec', 'val_sec'])
+        return
+
+    fieldnames = ['epoch', 'lr', 'train_loss', 'val_psnr', 'val_ssim', 'epoch_sec', 'val_sec']
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for each in metric_history:
+            writer.writerow(each)
+
+def plot_metric_history(metric_history, save_dir):
+    if len(metric_history) == 0:
+        return
+
+    try:
+        mpl_cache_dir = '/tmp/matplotlib-cache'
+        os.makedirs(mpl_cache_dir, exist_ok=True)
+        os.environ.setdefault('MPLCONFIGDIR', mpl_cache_dir)
+        import matplotlib
+        matplotlib.use('Agg', force=True)
+        import matplotlib.pyplot as plt
+    except Exception as e:
+        print(f'Warning: matplotlib is not available, skip plotting. {e}')
+        return
+
+    try:
+        epochs = [m['epoch'] for m in metric_history]
+        train_loss = [m['train_loss'] for m in metric_history]
+        val_psnr = [m['val_psnr'] for m in metric_history]
+        val_ssim = [m['val_ssim'] for m in metric_history]
+
+        fig, axes = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
+
+        axes[0].plot(epochs, train_loss, marker='o', linewidth=1.8)
+        axes[0].set_ylabel('Train Loss')
+        axes[0].grid(True, alpha=0.3)
+        axes[0].set_title('Training Metrics')
+
+        axes[1].plot(epochs, val_psnr, marker='o', linewidth=1.8)
+        axes[1].set_ylabel('Val PSNR')
+        axes[1].grid(True, alpha=0.3)
+
+        axes[2].plot(epochs, val_ssim, marker='o', linewidth=1.8)
+        axes[2].set_ylabel('Val SSIM')
+        axes[2].set_xlabel('Epoch')
+        axes[2].grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        plot_path = os.path.join(save_dir, 'metrics.png')
+        fig.savefig(plot_path, dpi=160)
+        plt.close(fig)
+    except Exception as e:
+        print(f'Warning: failed to generate metrics plot. {e}')
+
 ################################## For Metric ##################################
 def cal_psnr(img1, img2):
     mse = np.mean((img1 - img2) ** 2)
@@ -109,7 +191,7 @@ def gaussian(window_size, sigma):
 def create_window(window_size, channel):
     _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
     _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0)
-    window = Variable(_2D_window.expand(channel, 1, window_size, window_size).contiguous())
+    window = _2D_window.expand(channel, 1, window_size, window_size).contiguous()
     return window
 
 def _ssim(img1, img2, window, window_size, channel, size_average=True):
@@ -159,19 +241,25 @@ class SSIM(torch.nn.Module):
 
         return _ssim(img1, img2, window, self.window_size, channel, self.size_average)
 
+_SSIM_MODULE_CACHE = {}
+
 def ssim(img1, img2, window_size=11, size_average=True):
-    (_, channel, _, _) = img1.size()
-    window = create_window(window_size, channel)
-
-    if img1.is_cuda:
-        window = window.cuda(img1.get_device())
-    window = window.type_as(img1)
-
-    return _ssim(img1, img2, window, window_size, channel, size_average)
+    key = (
+        int(window_size),
+        bool(size_average),
+        str(img1.device),
+        str(img1.dtype),
+        img1.size(1),
+    )
+    ssim_module = _SSIM_MODULE_CACHE.get(key)
+    if ssim_module is None:
+        ssim_module = SSIM(window_size=window_size, size_average=size_average)
+        _SSIM_MODULE_CACHE[key] = ssim_module
+    return ssim_module(img1, img2)
 
 def cal_ssim(img1, img2, cuda_use=None, device=None):
-    img1 = Variable(torch.from_numpy(deepcopy(img1))).unsqueeze(0).unsqueeze(0)
-    img2 = Variable(torch.from_numpy(deepcopy(img2))).unsqueeze(0).unsqueeze(0)
+    img1 = torch.from_numpy(np.ascontiguousarray(img1)).unsqueeze(0).unsqueeze(0).float()
+    img2 = torch.from_numpy(np.ascontiguousarray(img2)).unsqueeze(0).unsqueeze(0).float()
 
     if device is None and cuda_use is not None and torch.cuda.is_available():
         device = torch.device(f'cuda:{int(cuda_use)}')
@@ -182,3 +270,52 @@ def cal_ssim(img1, img2, cuda_use=None, device=None):
 
     return ssim(img1, img2).data.cpu().numpy()
 
+def cal_ssim_volume(img1, img2, cuda_use=None, device=None, batch_size=32, stride=1, window_size=11):
+    """
+    Compute mean SSIM over a 3D volume by batching 2D slices.
+    When stride == 1, this matches averaging per-slice SSIM.
+    """
+    if device is None and cuda_use is not None and torch.cuda.is_available():
+        device = torch.device(f'cuda:{int(cuda_use)}')
+
+    if batch_size <= 0:
+        raise ValueError('batch_size must be a positive integer')
+    if stride <= 0:
+        raise ValueError('stride must be a positive integer')
+
+    img1 = np.asarray(img1, dtype=np.float32)
+    img2 = np.asarray(img2, dtype=np.float32)
+
+    if img1.shape != img2.shape:
+        raise ValueError(f'img1 and img2 must have same shape, got {img1.shape} vs {img2.shape}')
+
+    # Keep backward compatibility for 2D usage.
+    if img1.ndim == 2:
+        return float(cal_ssim(img1, img2, cuda_use=cuda_use, device=device))
+    if img1.ndim != 3:
+        raise ValueError(f'Only 2D/3D arrays are supported, got ndim={img1.ndim}')
+
+    if stride > 1:
+        img1 = img1[::stride]
+        img2 = img2[::stride]
+
+    total_ssim = 0.0
+    total_slices = 0
+
+    for start in range(0, img1.shape[0], batch_size):
+        end = min(start + batch_size, img1.shape[0])
+
+        batch_img1 = torch.from_numpy(np.ascontiguousarray(img1[start:end])).unsqueeze(1)
+        batch_img2 = torch.from_numpy(np.ascontiguousarray(img2[start:end])).unsqueeze(1)
+
+        if device is not None:
+            batch_img1 = batch_img1.to(device, non_blocking=True)
+            batch_img2 = batch_img2.to(device, non_blocking=True)
+
+        batch_ssim = ssim(batch_img1, batch_img2, window_size=window_size, size_average=False)
+        total_ssim += batch_ssim.sum().item()
+        total_slices += batch_ssim.numel()
+
+    if total_slices == 0:
+        return 0.0
+    return total_ssim / total_slices

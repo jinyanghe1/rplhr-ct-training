@@ -20,10 +20,29 @@ warnings.filterwarnings("ignore")
 rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
 resource.setrlimit(resource.RLIMIT_NOFILE, (2000, rlimit[1]))
 
+def _to_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        value = value.strip().lower()
+        if value in ['1', 'true', 'yes', 'y', 'on']:
+            return True
+        if value in ['0', 'false', 'no', 'n', 'off']:
+            return False
+    return bool(value)
+
 
 def test(**kwargs):
     # stage 1
     kwargs, data_info_dict = non_model.read_kwargs(kwargs)
+    compute_ssim = _to_bool(kwargs.pop('compute_ssim', True))
+    ssim_batch_size = int(kwargs.pop('ssim_batch_size', 32))
+    ssim_stride = int(kwargs.pop('ssim_stride', 1))
+    if ssim_batch_size <= 0:
+        raise ValueError('ssim_batch_size must be > 0')
+    if ssim_stride <= 0:
+        raise ValueError('ssim_stride must be > 0')
+
     opt.load_config('../config/default.txt')
     config_dict = opt._spec(kwargs)
 
@@ -62,6 +81,10 @@ def test(**kwargs):
     ###### Device ######
     device = non_model.resolve_device(opt.gpu_idx)
     print('Use device:', device)
+    if compute_ssim:
+        print(f'SSIM enabled, batch_size={ssim_batch_size}, stride={ssim_stride}')
+    else:
+        print('SSIM disabled by compute_ssim=False')
 
     save_model_path = save_model_folder + use_model
     save_dict = torch.load(save_model_path, map_location=torch.device('cpu'))
@@ -71,8 +94,11 @@ def test(**kwargs):
     opt._spec(config_dict)
 
     # test set
-    test_dir = os.path.join(opt.path_img, 'test', '1mm')
-    test_list = [each.split('.')[0] for each in sorted(os.listdir(test_dir))]
+    test_list, test_only_1mm, test_only_5mm = non_model.list_paired_cases(opt.path_img, 'test')
+    if len(test_only_1mm) > 0 or len(test_only_5mm) > 0:
+        print(f'Warning: test set has unmatched cases, skipped. 1mm_only={len(test_only_1mm)}, 5mm_only={len(test_only_5mm)}')
+    if len(test_list) == 0:
+        raise RuntimeError(f'No paired test cases found under path_img={opt.path_img}')
     test_set = test_Dataset(test_list)
     test_data_num = len(test_set.img_list)
     test_batch = Data.DataLoader(dataset=test_set, batch_size=opt.val_bs, shuffle=False,
@@ -92,7 +118,7 @@ def test(**kwargs):
     with torch.no_grad():
         pid_list = []
         psnr_list = []
-        ssim_list = []
+        ssim_list = [] if compute_ssim else None
 
         for i, return_list in tqdm(enumerate(test_batch)):
             case_name, x, y, pos_list = return_list
@@ -135,18 +161,19 @@ def test(**kwargs):
             psnr = non_model.cal_psnr(y_pre, y)
             psnr_list.append(psnr)
 
-            pid_ssim_list = []
-            for z_idx, z_layer in enumerate(y_pre):
-                mask_layer = y[z_idx]
-
-                tmp_ssim = non_model.cal_ssim(
-                    mask_layer, z_layer, device=device)
-                pid_ssim_list.append(tmp_ssim)
-
-            ssim_list.append(np.mean(pid_ssim_list))
+            if compute_ssim:
+                case_ssim = non_model.cal_ssim_volume(
+                    y,
+                    y_pre,
+                    device=device,
+                    batch_size=ssim_batch_size,
+                    stride=ssim_stride,
+                )
+                ssim_list.append(case_ssim)
 
         print(np.mean(psnr_list))
-        print(np.mean(ssim_list))
+        if compute_ssim:
+            print(np.mean(ssim_list))
 
 
 if __name__ == '__main__':

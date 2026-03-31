@@ -38,3 +38,8 @@ Thumbs.db
 # 日志
 *.log
 nohup.out
+
+# AutoDL MLOps Skill (包含敏感信息)
+scripts/autodl_skill/config.sh
+scripts/autodl_skill/logs/
+scripts/autodl_skill/crontab_backup_*.txt

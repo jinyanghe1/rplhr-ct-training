@@ -71,6 +71,22 @@ NOISE_ONLY_AUG = {
     'elastic_prob': 0.0,
 }
 
+# 配置D：仅几何变换（用于测试几何变换的影响）
+GEOMETRY_ONLY_AUG = {
+    'flip_prob': 0.5,
+    'rotate_prob': 0.3,
+    'shift_prob': 0.3,
+    'intensity_scale_prob': 0.0,
+    'intensity_shift_prob': 0.0,
+    'contrast_prob': 0.0,
+    'gamma_prob': 0.0,
+    'gaussian_noise_prob': 0.0,
+    'speckle_noise_prob': 0.0,
+    'slice_artifact_prob': 0.0,
+    'blur_prob': 0.0,
+    'elastic_prob': 0.0,
+}
+
 
 """
 使用示例 / Usage Example:

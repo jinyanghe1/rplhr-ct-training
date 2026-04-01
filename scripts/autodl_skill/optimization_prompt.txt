@@ -15,30 +15,29 @@
 
 **禁止只修代码就结束！必须完成完整闭环！**
 
-## ⚠️ 最高优先级任务: 架构适配 ratio=4
+## ⚠️ 最高优先级: Ratio=4 架构适配
 
-**详细分析见**: `scripts/autodl_skill/ratio4_adaptation_analysis.md`
+**必须严格遵循**: `scripts/autodl_skill/RATIO4_ARCHITECTURE_ADAPTATION.md`
 
-### 只需修改 config/default.txt 两个参数：
+### 核心修改
 
-```diff
-### data
--ratio = 5
-+ratio = 4
+1. **创建新配置文件**: `config/xuanwu_ratio4.txt`
+   - `c_z = 6` (从4改为6)
+   - `ratio = 4`
+   - `TD_Tw = 1`
 
-### Decoder config
-TD_Tw = 4
-+TD_Tw = 1
-```
+2. **修改模型裁剪逻辑**: `code/net/model_TransSR.py`
+   - 改为 `return x_out[:, :, 2:-3]` (裁剪5层，输出16层)
 
-### 计算原理
-- `out_z = (c_z - 1) * ratio + 1`
-- ratio=4, c_z=4 → out_z=13
-- TD_Tw=1 确保 window_size=1 能整除 13
+3. **移除训练数据插值**: `code/utils/in_model_xuanwu.py`
+   - 不再进行 zoom/interpolate
 
-### 验证方法
-- 训练能正常启动，不报 RuntimeError
-- Val PSNR 应在 20-40dB 范围（正值，不是 -61dB）
+4. **修改损失计算对齐**: `code/trainxuanwu.py`
+   - y 对齐到模型输出尺寸
+
+### 目标指标
+- Val PSNR > 25 dB (理想 > 30 dB)
+- 当前仅 ~10 dB（插值方案）
 
 ## ⚠️ 训练策略: 早期止损
 
@@ -58,37 +57,9 @@ TD_Tw = 4
 - Train Loss 曲线
 - 与 SOTA 对比 (PSNR ~13.5)
 
-## 分析阶段
-1. 检查 `scripts/autodl_skill/logs/` 下最新的训练结果
-2. 分析 `metrics.json` 中的 PSNR/SSIM/MSE 指标
-3. 查看 `training.log` 中的 loss 曲线和收敛情况
-
-## 优化方向 (每次选择1-2个重点)
-- ⚠️ **优先**: ratio=4 架构适配
-- 模型架构: 注意力机制、特征融合、跳跃连接
-- 损失函数: L1 vs L2 vs 感知损失 vs 对抗损失
-- 数据增强: 更强的几何变换、混合增广策略
-- 训练策略: 学习率调度、warmup、early stopping
-- 后处理: 去噪、边缘增强
-
 ## 执行要求
-1. 首先解决 ratio=4 架构适配问题
-2. 只修改本地代码 (model_*.py, trainxuanwu.py, loss.py, config/*.txt 等)
-3. 每次优化后用 `git commit + push`
-4. **⚠️ 重要**: 同步代码到 AutoDL 时，**禁止使用 scp 命令**！scp 会触发授权询问导致阻塞。
-   - 使用 git pull 同步（AutoDL 上的训练代码目录已经是 git 仓库）
-   - 命令: `source /etc/network_turbo && cd /root/autodl-tmp/rplhr-ct-training-main && git pull origin main`
-4. 在 commit message 中说明优化思路和预期改进
-5. 推送后触发 AutoDL 训练验证效果
 
-## 约束
-- ⚠️ 不要盲目增加 epochs 或重复相同训练，先修复架构问题
-- 确保代码改动有明确动机和理论基础
-- 正常指标参考: Val PSNR 应在 20-40dB（正值），不是 -61dB
-
-## 输出格式
-完成后报告:
-- 本次优化内容
-- 改动文件的 diff 摘要
-- 预期改进方向
-- 是否已推送到 GitHub 并触发训练
+1. 首先阅读 `scripts/autodl_skill/RATIO4_ARCHITECTURE_ADAPTATION.md`
+2. 严格按文档步骤实施
+3. 只修改本地代码
+4. 每次优化后用 `git commit + push`

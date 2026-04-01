@@ -40,6 +40,24 @@ TD_Tw = 4
 - 训练能正常启动，不报 RuntimeError
 - Val PSNR 应在 20-40dB 范围（正值，不是 -61dB）
 
+## ⚠️ 训练策略: 早期止损
+
+**如果 10 个 epoch 后 PSNR 仍是单位数 (<10 dB)，说明架构存在严重问题：**
+
+1. **立即停止 AutoDL 上的训练**
+2. **查看日志分析问题**
+3. **修改代码修复问题**
+4. **重新提交并训练**
+
+**检查 scripts/autodl_skill/ 目录获取审查意见和修改建议**
+
+## Benchmark 要求
+
+每次闭环必须包含：
+- Val PSNR / SSIM / MSE 指标
+- Train Loss 曲线
+- 与 SOTA 对比 (PSNR ~13.5)
+
 ## 分析阶段
 1. 检查 `scripts/autodl_skill/logs/` 下最新的训练结果
 2. 分析 `metrics.json` 中的 PSNR/SSIM/MSE 指标

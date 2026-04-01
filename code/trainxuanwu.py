@@ -26,6 +26,7 @@ import numpy as np
 from tqdm import tqdm
 
 import cv2
+import lpips
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -113,6 +114,14 @@ def train(**kwargs):
     ###### loss ######
     print('Use %s loss'%opt.loss_f)
     train_criterion = nn.L1Loss()
+
+    # Perceptual loss (LPIPS)
+    use_perceptual_loss = getattr(opt, 'use_perceptual_loss', False)
+    perceptual_alpha = getattr(opt, 'perceptual_alpha', 0.1)
+    perceptual_loss_fn = None
+    if use_perceptual_loss:
+        print(f'Initializing LPIPS perceptual loss (alpha={perceptual_alpha})...')
+        perceptual_loss_fn = lpips.LPIPS(net='alex').to(device)
 
     ###### Dataloader Setting ######
     def set_seed(seed):
@@ -216,6 +225,14 @@ def train(**kwargs):
 
             loss = train_criterion(y_pre, y)
 
+            # Perceptual loss
+            if perceptual_loss_fn is not None:
+                # LPIPS expects 3-channel input, expand from 1 to 3 channels
+                y_pre_3ch = y_pre.repeat(1, 3, 1, 1, 1)
+                y_3ch = y.repeat(1, 3, 1, 1, 1)
+                loss_percep = perceptual_loss_fn(y_pre_3ch, y_3ch).mean()
+                loss = loss + perceptual_alpha * loss_percep
+
             # backward
             optimizer.zero_grad()
             loss.backward()
@@ -261,7 +278,24 @@ def train(**kwargs):
                         tmp_pos_z, tmp_pos_y, tmp_pos_x = pos
 
                         tmp_x = torch.from_numpy(tmp_x).unsqueeze(0).unsqueeze(0).float().to(device)
-                        tmp_y_pre = net(tmp_x)  # 输出 actual_output_z 层 (如 16层)
+
+                        # TTA: Test Time Augmentation
+                        if getattr(opt, 'use_tta', False):
+                            # Original
+                            tmp_y_pre = net(tmp_x)
+                            # Horizontal flip
+                            tmp_x_hflip = torch.flip(tmp_x, [3])
+                            tmp_y_pre_hflip = net(tmp_x_hflip)
+                            tmp_y_pre_hflip = torch.flip(tmp_y_pre_hflip, [3])
+                            # Vertical flip
+                            tmp_x_vflip = torch.flip(tmp_x, [4])
+                            tmp_y_pre_vflip = net(tmp_x_vflip)
+                            tmp_y_pre_vflip = torch.flip(tmp_y_pre_vflip, [4])
+                            # Average
+                            tmp_y_pre = (tmp_y_pre + tmp_y_pre_hflip + tmp_y_pre_vflip) / 3.0
+                        else:
+                            tmp_y_pre = net(tmp_x)
+
                         tmp_y_pre = torch.clamp(tmp_y_pre, 0, 1)
                         y_for_psnr = tmp_y_pre.data.squeeze().cpu().numpy()
 

@@ -98,3 +98,9 @@ Tmin = False
 **** model config ****
 save_log = False
 ***********************************
+
+**** TTA & perceptual config ****
+use_tta = False
+use_perceptual_loss = False
+perceptual_alpha = 0.1
+***********************************

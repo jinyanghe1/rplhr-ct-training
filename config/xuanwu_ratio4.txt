@@ -1,8 +1,8 @@
 ########## spec_config ##########
 
 ### 宣武数据集1:4配置 (无插值架构适配)
-net_idx = xuanwu_ratio4
-path_key = dataset01_xuanwu
+net_idx = 'xuanwu_ratio4'
+path_key = 'dataset01_xuanwu'
 
 # loss
 loss_f = 'L1'

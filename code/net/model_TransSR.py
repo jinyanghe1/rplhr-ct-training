@@ -171,4 +171,15 @@ class TVSRN(nn.Module):
         trans_output = trans_output.reshape(1, self.c, -1, opt.c_y, opt.c_x)
         x_out = self.conv_last(self.conv_before_upsample(trans_output))
 
-        return x_out[:, :, 3:-3]
+        # ========== Dynamic cropping based on ratio and c_z ==========
+        # For ratio=4, c_z=6: out_z=21, crop 5 layers -> 16 layers output
+        # For ratio=5, c_z=4: out_z=16, crop 6 layers -> 10 layers output (default)
+        target_ratio = getattr(opt, 'ratio', 5)
+        target_cz = getattr(opt, 'c_z', 4)
+
+        if target_ratio == 4 and target_cz == 6:
+            # c_z=6, ratio=4: out_z=21, crop 5 layers (2 from start, 3 from end) -> 16
+            return x_out[:, :, 2:-3]
+        else:
+            # Default: crop 6 layers
+            return x_out[:, :, 3:-3]

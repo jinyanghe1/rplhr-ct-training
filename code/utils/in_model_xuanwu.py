@@ -91,13 +91,29 @@ def get_train_img(img_path, case_name):
 
 def get_val_img(img_path, case_name):
     """
-    加载宣武数据集验证数据
+    加载宣武数据集验证数据（归一化版本）
     """
     case_mask_path = os.path.join(img_path, 'val', 'thin', case_name + '.nii.gz')
     tmp_mask = sitk.GetArrayFromImage(sitk.ReadImage(case_mask_path))
 
     case_img_path = os.path.join(img_path, 'val', 'thick', case_name + '.nii.gz')
     tmp_img = sitk.GetArrayFromImage(sitk.ReadImage(case_img_path))
+
+    # ========== 归一化处理（与训练保持一致）==========
+    # CT值裁剪
+    if hasattr(opt, 'clip_ct') and opt.clip_ct:
+        tmp_img = np.clip(tmp_img, getattr(opt, 'min_hu', -1024), getattr(opt, 'max_hu', 3071))
+        tmp_mask = np.clip(tmp_mask, getattr(opt, 'min_hu', -1024), getattr(opt, 'max_hu', 3071))
+
+    # 归一化到[0,1]
+    if hasattr(opt, 'normalize_ct') and opt.normalize_ct:
+        window_center = getattr(opt, 'window_center', 0)
+        window_width = getattr(opt, 'window_width', 1000)
+        min_val = window_center - window_width / 2
+        max_val = window_center + window_width / 2
+        tmp_img = np.clip((tmp_img - min_val) / (max_val - min_val + 1e-8), 0, 1)
+        tmp_mask = np.clip((tmp_mask - min_val) / (max_val - min_val + 1e-8), 0, 1)
+    # ================================================
 
     if opt.mode != 'test':
         tmp_img = tmp_img[:, 128:-128, 128:-128]
@@ -143,13 +159,29 @@ def get_val_img(img_path, case_name):
 
 def get_test_img(img_path, case_name):
     """
-    加载宣武数据集测试数据
+    加载宣武数据集测试数据（归一化版本）
     """
     case_mask_path = os.path.join(img_path, 'test', 'thin', case_name + '.nii.gz')
     tmp_mask = sitk.GetArrayFromImage(sitk.ReadImage(case_mask_path))
 
     case_img_path = os.path.join(img_path, 'test', 'thick', case_name + '.nii.gz')
     tmp_img = sitk.GetArrayFromImage(sitk.ReadImage(case_img_path))
+
+    # ========== 归一化处理（与训练保持一致）==========
+    # CT值裁剪
+    if hasattr(opt, 'clip_ct') and opt.clip_ct:
+        tmp_img = np.clip(tmp_img, getattr(opt, 'min_hu', -1024), getattr(opt, 'max_hu', 3071))
+        tmp_mask = np.clip(tmp_mask, getattr(opt, 'min_hu', -1024), getattr(opt, 'max_hu', 3071))
+
+    # 归一化到[0,1]
+    if hasattr(opt, 'normalize_ct') and opt.normalize_ct:
+        window_center = getattr(opt, 'window_center', 0)
+        window_width = getattr(opt, 'window_width', 1000)
+        min_val = window_center - window_width / 2
+        max_val = window_center + window_width / 2
+        tmp_img = np.clip((tmp_img - min_val) / (max_val - min_val + 1e-8), 0, 1)
+        tmp_mask = np.clip((tmp_mask - min_val) / (max_val - min_val + 1e-8), 0, 1)
+    # ================================================
 
     z = tmp_img.shape[0]
     z_s = 0

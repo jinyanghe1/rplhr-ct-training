@@ -265,19 +265,17 @@ def train(**kwargs):
                         tmp_y_pre = torch.clamp(tmp_y_pre, 0, 1)
                         y_for_psnr = tmp_y_pre.data.squeeze().cpu().numpy()
 
-                        D = y_for_psnr.shape[0]  # 模型输出层数
-                        # 计算在y_pre中的位置
-                        # 对于 ratio=4, c_z=6: 输入6层对应输出16层
-                        # 位置映射: 原始位置 * ratio + 偏移
-                        pos_z_s = opt.ratio * tmp_pos_z + crop_front
+                        D = y_for_psnr.shape[0]  # 模型输出层数 (16)
+                        # 位置映射: 输入thick位置 * ratio = 对应thin位置
+                        # crop_front/crop_back是模型内部裁剪，不影响位置映射
+                        pos_z_s = opt.ratio * tmp_pos_z
                         pos_y_s = tmp_pos_y
                         pos_x_s = tmp_pos_x
 
                         y_pre[pos_z_s: pos_z_s+D, pos_y_s:pos_y_s+opt.vc_y, pos_x_s:pos_x_s+opt.vc_x] = y_for_psnr
 
-                    # 对齐评估区域 (去掉边界)
-                    # 模型覆盖范围是 ratio*pos_z + offset 到 ratio*pos_z + offset + D
-                    # 验证时取中间区域避免边界效应
+                    # 对齐评估区域 (去掉边界，避免边界效应)
+                    # 移除前后各 crop_front+crop_back 层
                     border = crop_front + crop_back
                     y_pre_valid = y_pre[border:-border]
                     y_valid = y[border:-border]

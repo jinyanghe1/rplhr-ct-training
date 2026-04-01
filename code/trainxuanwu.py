@@ -20,6 +20,7 @@ import torch.utils.data as Data
 from config import opt
 from loss import CharbonnierLoss
 from utils import non_model
+from utils.augmentation import CTVolumetricAugmentation
 from make_dataset_xuanwu import train_Dataset, val_Dataset
 from net import model_TransSR
 
@@ -210,8 +211,28 @@ def train(**kwargs):
         train_loss = 0
         net = net.train()
 
+        # Initialize augmentation for this epoch
+        aug_config = {
+            'gaussian_noise_prob': 0.3,  # 30%概率添加高斯噪声
+            'elastic_prob': 0.2,          # 20%概率弹性形变
+            'flip_prob': 0.5,            # 50%概率翻转
+            'rotate_prob': 0.3,          # 30%概率旋转
+        }
+        aug = CTVolumetricAugmentation(aug_config)
+
         for i, return_list in tqdm(enumerate(train_batch)):
             case_name, x, y = return_list
+
+            # Apply data augmentation (on numpy arrays)
+            if getattr(opt, 'use_augmentation', False):
+                x_np = x.squeeze().data.numpy()  # (B, C, D, H, W)
+                y_np = y.squeeze().data.numpy()
+                B = x_np.shape[0]
+                for b in range(B):
+                    x_np[b], y_np[b] = aug.apply_augmentation(x_np[b], y_np[b])
+                x = torch.from_numpy(x_np).float()
+                y = torch.from_numpy(y_np).float()
+
             x = x.float().to(device, non_blocking=True)
             y = y.float().to(device, non_blocking=True)
 

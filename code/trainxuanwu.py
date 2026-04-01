@@ -225,13 +225,10 @@ def train(**kwargs):
 
             loss = train_criterion(y_pre, y)
 
-            # Perceptual loss
-            if perceptual_loss_fn is not None:
-                # LPIPS expects 3-channel input, expand from 1 to 3 channels
-                y_pre_3ch = y_pre.repeat(1, 3, 1, 1, 1)
-                y_3ch = y.repeat(1, 3, 1, 1, 1)
-                loss_percep = perceptual_loss_fn(y_pre_3ch, y_3ch).mean()
-                loss = loss + perceptual_alpha * loss_percep
+            # Perceptual loss - skip for 3D, LPIPS only works with 2D
+            # if perceptual_loss_fn is not None:
+            #     loss_percep = perceptual_loss_fn(y_pre, y).mean()
+            #     loss = loss + perceptual_alpha * loss_percep
 
             # backward
             optimizer.zero_grad()

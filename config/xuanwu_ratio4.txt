@@ -17,8 +17,8 @@ ratio = 4
 T_mlp = 4
 T_pos = True
 
-# Encoder config
-TE_c = 8
+# Encoder config - 增加容量
+TE_c = 16
 TE_l = 1
 TE_d = 4
 TE_n = 8
@@ -29,7 +29,7 @@ TE_p = 8
 TD_p = 8
 TD_s = 1
 
-TD_Tw = 1
+TD_Tw = 3
 TD_Tl = 1
 TD_Td = 4
 
@@ -56,7 +56,7 @@ pre_train = False
 # train set
 epoch = 2000
 start_epoch = 1
-gap_epoch = 200
+gap_epoch = 50
 
 # dataloader set
 train_bs = 1
@@ -86,11 +86,11 @@ lr = 0.0003
 flood = False
 gap_val = 5
 
-# 学习率策略
-patience = 15
-cos_lr = False
-Tmax = 20
-lr_gap = 1000
+# 学习率策略 - 启用cosine annealing
+patience = 10
+cos_lr = True
+Tmax = 50
+lr_gap = 100
 cycle_r = False
 Tmin = False
 ***********************************

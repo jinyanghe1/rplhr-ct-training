@@ -18,6 +18,7 @@ import torch.nn.functional as F
 import torch.utils.data as Data
 
 from config import opt
+from loss import CharbonnierLoss
 from utils import non_model
 from make_dataset_xuanwu import train_Dataset, val_Dataset
 from net import model_TransSR
@@ -112,8 +113,8 @@ def train(**kwargs):
                                                                patience=opt.patience, threshold=0.000001)
 
     ###### loss ######
-    print('Use %s loss'%opt.loss_f)
-    train_criterion = nn.L1Loss()
+    print('Use %s loss'%('Charbonnier',))
+    train_criterion = CharbonnierLoss(eps=1e-6)
 
     # Perceptual loss (LPIPS)
     use_perceptual_loss = getattr(opt, 'use_perceptual_loss', False)
@@ -202,7 +203,7 @@ def train(**kwargs):
         tmp_lr = optimizer.__getstate__()['param_groups'][0]['lr']
         print('================= Epoch %s lr=%.6f =================' % (tmp_epoch, tmp_lr))
 
-        if tmp_epoch > epoch_save + opt.gap_epoch or lr_change == 4:
+        if tmp_epoch > epoch_save + opt.gap_epoch:
             break
 
         # Train

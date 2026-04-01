@@ -35,13 +35,14 @@ log() {
 # SSH执行 - 永不阻塞 (使用SSH内置超时)
 ssh_run() {
     local cmd="$1"
+    log "[SSH] 执行: ${cmd:0:60}..."
     ssh -o StrictHostKeyChecking=no \
         -o BatchMode=yes \
         -o ConnectTimeout=10 \
         -o ServerAliveInterval=5 \
         -o ServerAliveCountMax=3 \
         -p $PORT $USER@$HOST "$cmd" 2>&1 || {
-        echo "[SSH_ERROR] SSH failed or timed out"
+        echo "[SSH_ERROR] SSH命令执行失败"
         return 1
     }
 }
@@ -130,19 +131,16 @@ EOF
     echo "$psnr"
 }
 
-# 启动训练 - 使用远程脚本文件方式执行命令
+# 启动训练 - 直接执行方式 (避免 heredoc 问题)
 start_training() {
     log "启动新训练 ($EPOCHS epochs)..."
 
-    # 构建训练命令 (使用 conda python)
-    local TRAIN_CMD="source /root/miniconda3/bin/activate base && cd $CODE_PATH && source /etc/network_turbo && nohup python trainxuanwu.py train --net_idx=$NET_IDX --path_key=$DATASET_KEY --epoch=$EPOCHS --use_augmentation=True --aug_prob=0.5 --clip_ct=True --min_hu=-1024 --max_hu=3071 --normalize_ct=True --num_workers=4 --test_num_workers=2 > $REPO_PATH/train_autodl.log 2>&1 &"
+    # 构建训练命令 - 直接在远程执行
+    local TRAIN_CMD="cd $CODE_PATH && source /etc/network_turbo && nohup python trainxuanwu.py train --net_idx=$NET_IDX --path_key=$DATASET_KEY --epoch=$EPOCHS --use_augmentation=True --aug_prob=0.5 --clip_ct=True --min_hu=-1024 --max_hu=3071 --normalize_ct=True --num_workers=4 --test_num_workers=2 > $REPO_PATH/train_autodl.log 2>&1 &"
 
-    # 创建远程脚本并执行 - 最可靠的方式
-    ssh_run_retry "cat > /tmp/start_train.sh << 'EOFSCRIPT'
-$TRAIN_CMD
-EOFSCRIPT
-chmod +x /tmp/start_train.sh
-bash /tmp/start_train.sh" || {
+    # 直接执行训练命令
+    log "执行: $TRAIN_CMD"
+    ssh_run_retry "$TRAIN_CMD" || {
         log "[警告] SSH执行失败，尝试直接执行..."
         ssh_run "$TRAIN_CMD" || true
     }

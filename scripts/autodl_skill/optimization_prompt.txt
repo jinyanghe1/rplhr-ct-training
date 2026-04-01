@@ -59,7 +59,9 @@
 
 ## 执行要求
 
-1. 首先阅读 `scripts/autodl_skill/RATIO4_ARCHITECTURE_ADAPTATION.md`
+1. 首先阅读以下文档（按顺序）：
+   - `scripts/autodl_skill/RATIO4_ARCHITECTURE_ADAPTATION.md` - 总体方案
+   - `scripts/autodl_skill/CODE_REVIEW_REPORT.md` - 代码审查报告
 2. 严格按文档步骤实施
 3. 只修改本地代码
 4. 每次优化后用 `git commit + push`

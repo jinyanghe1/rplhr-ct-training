@@ -136,7 +136,7 @@ start_training() {
     log "启动新训练 ($EPOCHS epochs)..."
 
     # 构建训练命令 - 直接在远程执行
-    local TRAIN_CMD="cd $CODE_PATH && source /etc/network_turbo && nohup python trainxuanwu.py train --net_idx=$NET_IDX --path_key=$DATASET_KEY --epoch=$EPOCHS --use_augmentation=True --aug_prob=0.5 --clip_ct=True --min_hu=-1024 --max_hu=3071 --normalize_ct=True --num_workers=4 --test_num_workers=2 > $REPO_PATH/train_autodl.log 2>&1 &"
+    local TRAIN_CMD="cd $CODE_PATH && source /etc/network_turbo && nohup /root/miniconda3/bin/python trainxuanwu.py train --net_idx=$NET_IDX --path_key=$DATASET_KEY --epoch=$EPOCHS --use_augmentation=True --aug_prob=0.5 --clip_ct=True --min_hu=-1024 --max_hu=3071 --normalize_ct=True --num_workers=4 --test_num_workers=2 > $REPO_PATH/train_autodl.log 2>&1 &"
 
     # 直接执行训练命令
     log "执行: $TRAIN_CMD"

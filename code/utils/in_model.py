@@ -44,8 +44,8 @@ def get_train_img(img_path, case_name):
 
     crop_img = tmp_img[z_s:z_e, y_s:y_e, x_s:x_e]
 
-    mask_z_s = z_s * 5 + 3
-    mask_z_e = (z_e - 1) * 5 - 2
+    mask_z_s = z_s * opt.ratio + 3
+    mask_z_e = (z_e - 1) * opt.ratio - 2
 
     crop_mask = tmp_mask[mask_z_s: mask_z_e, y_s:y_e, x_s:x_e]
 

@@ -317,6 +317,50 @@ git revert HEAD
 
 ---
 
+## 七、经验教训 (Lessons Learned)
+
+### 7.1 EXP_001 案例分析
+
+**问题**: EAGLE Loss 声称已集成，但实际训练使用的是 L1Loss
+
+**根因**:
+1. `trainxuanwu.py` 导入了 `EAGLELoss` 但未实际使用
+2. 代码修改为 `train_criterion = EAGLELoss()` 后未提交
+3. 训练日志显示 "Use L1 loss"，但被忽略
+
+**教训**:
+- ✅ 修改后必须验证实际使用的Loss（检查日志输出）
+- ✅ 不能仅依赖git commit，需验证远程代码状态
+- ✅ 添加Loss时必须考虑数据维度兼容性（3D vs 2D）
+
+**数据维度检查清单**:
+```markdown
+- [ ] 确认输入数据维度 (B,C,D,H,W) for 3D CT
+- [ ] 确认Loss函数支持该维度
+- [ ] 如果使用2D操作(conv2d)，需reshape或切片
+- [ ] 验证前向传播无维度错误
+```
+
+### 7.2 3D数据Loss适配指南
+
+**CT数据格式**: `(Batch, Channel, Depth, Height, Width)` = `(B, 1, 16, 256, 256)`
+
+**常见Loss维度支持**:
+
+| Loss类型 | 维度支持 | 适配方法 |
+|----------|----------|----------|
+| L1Loss | 任意 | 直接使用 |
+| MSELoss | 任意 | 直接使用 |
+| Charbonnier | 任意 | 直接使用 |
+| EAGLE (2D) | 4D only | reshape 3D→2D 或使用3D版本 |
+| Perceptual (VGG) | 4D only | 切片为2D或使用2.5D方法 |
+
+**推荐3D Edge-Aware Loss实现**:
+参见 `3D_EDGE_AWARE_LOSS_RESEARCH.md`
+
+---
+
 *制定: 2026-04-01*  
+*更新: 2026-04-01 (添加EXP_001教训)*  
 *生效: 立即*  
 *审核: Agent Swarm*

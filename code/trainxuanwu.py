@@ -85,6 +85,18 @@ def train(**kwargs):
     ###### network ######
     net = model_TransSR.TVSRN().to(device)
 
+    ###### EMA (Exponential Moving Average) ######
+    use_ema = getattr(opt, 'use_ema', False)
+    ema_decay = getattr(opt, 'ema_decay', 0.999)
+    ema_net = None
+    if use_ema:
+        print('================== EMA enabled, decay=%.4f ==================' % ema_decay)
+        ema_net = model_TransSR.TVSRN().to(device)
+        ema_net.eval()
+        for param, ema_param in zip(net.parameters(), ema_net.parameters()):
+            ema_param.data.copy_(param.data)
+        ema_shadow = {name: param.clone() for name, param in net.named_parameters()}
+
     ###### optim ######
     lr = opt.lr
     if opt.optim == 'SGD':
@@ -101,6 +113,12 @@ def train(**kwargs):
         optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, net.parameters()),
                                       lr=lr, weight_decay=opt.wd)
         print('================== AdamW lr = %.6f ==================' % lr)
+
+    ###### Gradient Clipping ######
+    use_grad_clip = getattr(opt, 'use_grad_clip', False)
+    grad_clip_norm = getattr(opt, 'grad_clip_norm', 1.0)
+    if use_grad_clip:
+        print('================== Gradient Clipping enabled, max_norm=%.1f ==================' % grad_clip_norm)
 
     if opt.cos_lr:
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=opt.Tmax, \
@@ -241,7 +259,19 @@ def train(**kwargs):
             # backward
             optimizer.zero_grad()
             loss.backward()
+
+            # Gradient Clipping
+            if use_grad_clip:
+                torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=grad_clip_norm)
+
             optimizer.step()
+
+            # EMA update
+            if use_ema and ema_net is not None:
+                with torch.no_grad():
+                    for param, ema_param in zip(net.parameters(), ema_net.parameters()):
+                        ema_param.data.mul_(ema_decay).add_(param.data, alpha=1 - ema_decay)
+
             train_loss += loss.item()
             del y_pre, y, x
 
@@ -261,7 +291,9 @@ def train(**kwargs):
             print('epoch %s, train_loss: %.4f' % (tmp_epoch, train_loss))
         else:
             val_start_time = time.time()
-            net = net.eval()
+            # Use EMA model for validation if enabled
+            val_net = ema_net if (use_ema and ema_net is not None) else net
+            val_net = val_net.eval()
             with torch.no_grad():
                 psnr_list = []
                 ssim_list = [] if compute_val_ssim else None
@@ -287,19 +319,19 @@ def train(**kwargs):
                         # TTA: Test Time Augmentation
                         if getattr(opt, 'use_tta', False):
                             # Original
-                            tmp_y_pre = net(tmp_x)
+                            tmp_y_pre = val_net(tmp_x)
                             # Horizontal flip
                             tmp_x_hflip = torch.flip(tmp_x, [3])
-                            tmp_y_pre_hflip = net(tmp_x_hflip)
+                            tmp_y_pre_hflip = val_net(tmp_x_hflip)
                             tmp_y_pre_hflip = torch.flip(tmp_y_pre_hflip, [3])
                             # Vertical flip
                             tmp_x_vflip = torch.flip(tmp_x, [4])
-                            tmp_y_pre_vflip = net(tmp_x_vflip)
+                            tmp_y_pre_vflip = val_net(tmp_x_vflip)
                             tmp_y_pre_vflip = torch.flip(tmp_y_pre_vflip, [4])
                             # Average
                             tmp_y_pre = (tmp_y_pre + tmp_y_pre_hflip + tmp_y_pre_vflip) / 3.0
                         else:
-                            tmp_y_pre = net(tmp_x)
+                            tmp_y_pre = val_net(tmp_x)
 
                         tmp_y_pre = torch.clamp(tmp_y_pre, 0, 1)
                         y_for_psnr = tmp_y_pre.data.squeeze().cpu().numpy()

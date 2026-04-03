@@ -120,7 +120,30 @@ def train(**kwargs):
     if use_grad_clip:
         print('================== Gradient Clipping enabled, max_norm=%.1f ==================' % grad_clip_norm)
 
-    if opt.cos_lr:
+    ###### Warmup Config ######
+    use_warmup = getattr(opt, 'use_warmup', True)
+    warmup_epochs = getattr(opt, 'warmup_epochs', 10)
+    base_lr = lr
+    if use_warmup:
+        print('================== Warmup enabled, epochs=%d, base_lr=%.6f ==================' % (warmup_epochs, base_lr))
+
+    ###### Learning Rate Scheduler ######
+    if use_warmup:
+        # Warmup + Cosine Annealing
+        # Phase 1: Warmup (linear increase from lr/10 to lr)
+        # Phase 2: Cosine annealing after warmup
+        def lr_lambda(epoch):
+            if epoch < warmup_epochs:
+                # Linear warmup: start from 0.1 and increase to 1.0
+                return 0.1 + 0.9 * (epoch / warmup_epochs)
+            else:
+                # Cosine annealing after warmup
+                progress = (epoch - warmup_epochs) / (opt.Tmax - warmup_epochs)
+                return max(opt.lr / opt.lr_gap / base_lr, 0.5 * (1 + np.cos(np.pi * progress)))
+        
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+        print('================== Cosine Annealing with Warmup, Tmax=%d ==================' % opt.Tmax)
+    elif opt.cos_lr:
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=opt.Tmax, \
                                                        eta_min=opt.lr / opt.lr_gap)
     elif opt.Tmin == True:
@@ -131,8 +154,13 @@ def train(**kwargs):
                                                                patience=opt.patience, threshold=0.000001)
 
     ###### loss ######
-    print('Use %s loss'%('Charbonnier',))
-    train_criterion = CharbonnierLoss(eps=1e-6)
+    loss_type = getattr(opt, 'loss_f', 'L1').strip()
+    if loss_type == 'Charbonnier':
+        print('Use Charbonnier loss')
+        train_criterion = CharbonnierLoss(eps=1e-6)
+    else:
+        print('Use L1 loss')
+        train_criterion = nn.L1Loss()
 
     # Perceptual loss (LPIPS)
     use_perceptual_loss = getattr(opt, 'use_perceptual_loss', False)
@@ -394,18 +422,20 @@ def train(**kwargs):
                 del save_dict
                 print('====================== model save ========================')
 
-            if opt.cos_lr == True:
-                scheduler.step()
-            elif opt.Tmin == True:
-                scheduler.step(train_loss)
-            else:
-                scheduler.step(best_metric)
-
-            before_lr = optimizer.__getstate__()['param_groups'][0]['lr']
-            if before_lr != tmp_lr:
-                lr_change += 1
-
             non_model.clear_device_cache(device)
+
+        # Step scheduler: warmup needs step every epoch, cosine annealing needs step every epoch too
+        # This is moved outside pass_flag check to ensure LR updates even when skipping validation
+        if use_warmup or opt.cos_lr:
+            scheduler.step()
+        elif opt.Tmin == True:
+            scheduler.step(train_loss)
+        else:
+            scheduler.step(best_metric)
+
+        before_lr = optimizer.__getstate__()['param_groups'][0]['lr']
+        if before_lr != tmp_lr:
+            lr_change += 1
 
         epoch_elapsed = time.time() - epoch_start_time
         metric_history.append({

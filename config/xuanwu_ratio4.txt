@@ -86,13 +86,17 @@ lr = 0.0003
 flood = False
 gap_val = 5
 
-# 学习率策略 - 启用cosine annealing
+# 学习率策略 - 启用cosine annealing with warmup
 patience = 10
 cos_lr = True
-Tmax = 50
+Tmax = 150          # 从50增加到150，更平滑的cosine annealing
 lr_gap = 100
 cycle_r = False
 Tmin = False
+
+# Warmup配置
+use_warmup = False   # 禁用warmup，使用标准cosine annealing
+warmup_epochs = 10
 ***********************************
 
 **** model config ****
@@ -105,9 +109,12 @@ use_perceptual_loss = False
 perceptual_alpha = 0.1
 ***********************************
 
-**** EMA & Gradient Clipping config ****
+**** EMA & Gradient Clipping & Warmup config ****
 use_ema = True
-ema_decay = 0.999
+ema_decay = 0.995
+ema_warmup_epochs = 10
 use_grad_clip = True
 grad_clip_norm = 1.0
+use_warmup = False
+warmup_epochs = 10
 ***********************************

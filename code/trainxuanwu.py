@@ -87,15 +87,15 @@ def train(**kwargs):
 
     ###### EMA (Exponential Moving Average) ######
     use_ema = getattr(opt, 'use_ema', False)
-    ema_decay = getattr(opt, 'ema_decay', 0.999)
+    ema_decay = getattr(opt, 'ema_decay', 0.995)  # 降低衰减率以加快收敛
+    ema_warmup_epochs = getattr(opt, 'ema_warmup_epochs', 10)  # EMA预热epoch数
     ema_net = None
+    ema_started = False
     if use_ema:
-        print('================== EMA enabled, decay=%.4f ==================' % ema_decay)
+        print('================== EMA enabled, decay=%.4f, warmup=%d ==================' % (ema_decay, ema_warmup_epochs))
         ema_net = model_TransSR.TVSRN().to(device)
         ema_net.eval()
-        for param, ema_param in zip(net.parameters(), ema_net.parameters()):
-            ema_param.data.copy_(param.data)
-        ema_shadow = {name: param.clone() for name, param in net.named_parameters()}
+        # 不立即复制参数，等预热结束后再复制
 
     ###### optim ######
     lr = opt.lr
@@ -294,11 +294,19 @@ def train(**kwargs):
 
             optimizer.step()
 
-            # EMA update
-            if use_ema and ema_net is not None:
+            # EMA update (只在预热期结束后开始)
+            if use_ema and ema_net is not None and tmp_epoch > ema_warmup_epochs:
                 with torch.no_grad():
-                    for param, ema_param in zip(net.parameters(), ema_net.parameters()):
-                        ema_param.data.mul_(ema_decay).add_(param.data, alpha=1 - ema_decay)
+                    if not ema_started:
+                        # 预热结束，初始化EMA参数
+                        for param, ema_param in zip(net.parameters(), ema_net.parameters()):
+                            ema_param.data.copy_(param.data)
+                        ema_started = True
+                        print('EMA initialized at epoch %d' % tmp_epoch)
+                    else:
+                        # 正常EMA更新
+                        for param, ema_param in zip(net.parameters(), ema_net.parameters()):
+                            ema_param.data.mul_(ema_decay).add_(param.data, alpha=1 - ema_decay)
 
             train_loss += loss.item()
             del y_pre, y, x
@@ -319,8 +327,8 @@ def train(**kwargs):
             print('epoch %s, train_loss: %.4f' % (tmp_epoch, train_loss))
         else:
             val_start_time = time.time()
-            # Use EMA model for validation if enabled
-            val_net = ema_net if (use_ema and ema_net is not None) else net
+            # Use EMA model for validation if enabled and past warmup
+            val_net = ema_net if (use_ema and ema_net is not None and tmp_epoch > ema_warmup_epochs) else net
             val_net = val_net.eval()
             with torch.no_grad():
                 psnr_list = []

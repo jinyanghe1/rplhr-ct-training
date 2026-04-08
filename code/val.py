@@ -135,7 +135,7 @@ def val(**kwargs):
                 tmp_pos_z, tmp_pos_y, tmp_pos_x = pos
 
                 tmp_x = torch.from_numpy(tmp_x).unsqueeze(0).unsqueeze(0).float().to(device)
-                tmp_y_pre = net(tmp_x)
+                tmp_y_pre = net(tmp_x, ratio=4)
                 tmp_y_pre = torch.clamp(tmp_y_pre, 0, 1)
                 y_for_psnr = tmp_y_pre.data.squeeze().cpu().numpy()
 

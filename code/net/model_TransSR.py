@@ -67,9 +67,9 @@ class TVSRN(nn.Module):
         self.c_y = opt.c_y
         self.c_x = opt.c_x
 
-        # 计算最大可能的 out_z (ratio=5 时最大)
-        max_ratio = getattr(opt, 'max_ratio', 5)
-        self.max_out_z = (opt.c_z - 1) * max_ratio + 1
+        # 计算最大可能的 out_z (max_ratio 决定 Decoder_I 的 embed_dim)
+        self.max_ratio = getattr(opt, 'max_ratio', 5)
+        self.max_out_z = (opt.c_z - 1) * self.max_ratio + 1
         self.x_patch_mask = torch.nn.Parameter(
             torch.zeros(self.max_out_z - opt.c_z, self.c, opt.c_y, opt.c_x)
         )
@@ -92,13 +92,17 @@ class TVSRN(nn.Module):
         # 使用默认 ratio 初始化 Decoder (权重可在 forward 中被不同 out_z 使用)
         default_out_z = (opt.c_z - 1) * opt.ratio + 1
 
+        # Decoder_I: embed_dim = c * max_out_z (支持所有 ratio ≤ max_ratio)
+        # 当 forward 使用较小 ratio 时，cal_z 中零填充到 max_out_z
+        # NOTE: Decoder_T 的 img_size 保持 default_out_z (Swin 运行时自适应，无需改动)
+
         for i in range(1, opt.TD_s+1):
             T_embed = self.c * self.D_patch
             exec('''self.Decoder_T%s = Swin_backbone_unConv(img_size=(default_out_z, img_size), embed_dim=T_embed,
                                          depths=D_T_depths, num_heads=D_T_num_heads, window_size=T_win,
                                          mlp_ratio=mlp_ratio)''' % (i))
 
-            I_embed = self.c * default_out_z
+            I_embed = self.c * self.max_out_z
             exec('''self.Decoder_I%s = Swin_backbone_unConv(img_size=img_size, embed_dim=I_embed,
                                             depths=D_I_depths, num_heads=D_I_num_heads, window_size=I_win,
                                             mlp_ratio=mlp_ratio)''' % (i))
@@ -138,9 +142,26 @@ class TVSRN(nn.Module):
 
         return torch.tensor(re_list, dtype=torch.long, device=device)
 
-    def cal_z(self, x, D):
-        x_in = x.reshape(1, -1, opt.c_y, opt.c_x)
+    def cal_z(self, x, D, out_z):
+        """Z-axis decoder with zero-padding to max_out_z for Decoder_I compatibility.
+        When out_z < max_out_z, pad extra z-slices with zeros before processing,
+        then trim back after. This ensures Decoder_I's embed_dim always matches."""
+        if out_z < self.max_out_z:
+            # x: (1, c*out_z, cy, cx) → pad z to max_out_z
+            x_r = x.reshape(1, out_z, self.c, opt.c_y, opt.c_x)
+            pad_z = self.max_out_z - out_z
+            x_padded = F.pad(x_r, (0, 0, 0, 0, 0, 0, 0, pad_z))  # pad z-dim at end
+            x_in = x_padded.reshape(1, -1, opt.c_y, opt.c_x)
+        else:
+            x_in = x.reshape(1, -1, opt.c_y, opt.c_x)
+
         x_out = D.forward_features(x_in)
+
+        if out_z < self.max_out_z:
+            x_out = x_out.reshape(1, self.max_out_z, self.c, opt.c_y, opt.c_x)
+            x_out = x_out[:, :out_z]
+            x_out = x_out.reshape(1, -1, opt.c_y, opt.c_x)
+
         return x_out
 
     def cal_xy(self, x, D):
@@ -170,6 +191,8 @@ class TVSRN(nn.Module):
         """
         if ratio is None:
             ratio = opt.ratio
+        assert ratio <= self.max_ratio, \
+            f"ratio={ratio} exceeds max_ratio={self.max_ratio}"
 
         x = x.squeeze().unsqueeze(0)
 
@@ -203,33 +226,18 @@ class TVSRN(nn.Module):
         else:
             trans_input = x_patch_embed
 
-        # Decoder
+        # Decoder (cal_z needs out_z for padding to max_out_z)
         trans_feature = trans_input.reshape(1, -1, opt.c_y, opt.c_x)
         for i in range(1, opt.TD_s + 1):
             trans_feature = eval('self.cal_xy(trans_feature, self.Decoder_T%s)' % i) + trans_feature
-            trans_feature = eval('self.cal_z(trans_feature, self.Decoder_I%s)' % i) + trans_feature
+            trans_feature = eval('self.cal_z(trans_feature, self.Decoder_I%s, out_z)' % i) + trans_feature
 
         trans_output = trans_feature + trans_input.reshape(1, -1, opt.c_y, opt.c_x)
         trans_output = trans_output.reshape(1, self.c, -1, opt.c_y, opt.c_x)
         x_out = self.conv_last(self.conv_before_upsample(trans_output))
 
         # ========== 统一裁剪逻辑 ==========
-        # 计算目标输出 z 维度
-        # 对于 ratio=4, c_z=4: out_z=13, 中心裁剪后保留有效区域
-        # 对于 ratio=5, c_z=4: out_z=16, 中心裁剪后保留有效区域
-        # 裁剪策略: 去掉首尾的边界层 (边界效应)
-        crop_start = out_z // 4   # 近似 1/4 作为起始裁剪
-        crop_end = out_z - out_z // 4  # 近似 3/4 作为结束裁剪
-
-        # 但保持与原始逻辑一致的裁剪方式
-        # 原始: ratio=5,c_z=4 -> crop 3:-3 (crop 6 layers)
-        # 原始: ratio=4,c_z=6 -> crop 2:-3 (crop 5 layers)
-        # 通用化: crop_start 和 crop_end
-        if ratio == 4 and self.c_z == 6:
-            return x_out[:, :, 2:-3]
-        elif ratio == 5 and self.c_z == 4:
-            return x_out[:, :, 3:-3]
-        else:
-            # 通用裁剪: 对称裁剪边界
-            margin = max(1, out_z // 8)
-            return x_out[:, :, margin:-margin]
+        # crop_margin 与数据加载对齐: mask_z_s = z_s * ratio + crop_margin
+        # c_z=4 时 ratio=4(out_z=13) 和 ratio=5(out_z=16) 都使用 [3:-3]
+        crop_margin = getattr(opt, 'crop_margin', 3)
+        return x_out[:, :, crop_margin:-crop_margin]

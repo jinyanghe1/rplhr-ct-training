@@ -44,6 +44,7 @@ def train(**kwargs):
     checkpoint_root = kwargs.pop('checkpoint_root', '../checkpoints')
     archive_every_epoch = int(kwargs.pop('archive_every_epoch', 0))
     resume_from = kwargs.pop('resume_from', None)
+    freeze_encoder = _to_bool(kwargs.pop('freeze_encoder', False))
     if val_ssim_batch_size <= 0:
         raise ValueError('val_ssim_batch_size must be > 0')
     if val_ssim_stride <= 0:
@@ -87,6 +88,22 @@ def train(**kwargs):
             net.load_state_dict(ckpt)
         del ckpt
         print('Checkpoint loaded successfully')
+
+    # ========== Freeze encoder for small-data finetune ==========
+    if freeze_encoder:
+        frozen_count = 0
+        # Freeze LP (Linear Projection) — ratio-agnostic input embedding
+        for param in net.LP.parameters():
+            param.requires_grad = False
+            frozen_count += param.numel()
+        # Freeze Encoder (Swin backbone) — ratio-agnostic xy-plane features
+        for param in net.Encoder.parameters():
+            param.requires_grad = False
+            frozen_count += param.numel()
+        total_count = sum(p.numel() for p in net.parameters())
+        trainable_count = sum(p.numel() for p in net.parameters() if p.requires_grad)
+        print(f'[freeze_encoder] Frozen LP + Encoder: {frozen_count:,} params')
+        print(f'[freeze_encoder] Trainable (MToken+Decoder+Output): {trainable_count:,} / {total_count:,} total')
 
     ###### optim ######
     lr = opt.lr

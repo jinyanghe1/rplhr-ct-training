@@ -140,9 +140,16 @@ def get_val_img(img_path, case_name):
     z, y, x = tmp_img.shape
     z_s = 0
     z_split = []
+    # 动态计算LR z-step，确保HR空间无间隙
+    # D = (vc_z-1)*ratio+1-2*crop_margin = 模型输出z切片数
+    # HR step = lr_step * ratio，必须 <= D 避免间隙
+    _crop_margin = getattr(opt, 'crop_margin', 3)
+    _ratio = getattr(opt, 'ratio', 4)
+    _D = (opt.vc_z - 1) * _ratio + 1 - 2 * _crop_margin
+    _lr_step = max(1, _D // _ratio)
     while z_s + opt.vc_z < z:
         z_split.append(z_s)
-        z_s += (opt.vc_z - 2)
+        z_s += _lr_step
 
     if z - opt.vc_z > z_split[-1]:
         z_split.append(z - opt.vc_z)
@@ -188,9 +195,13 @@ def get_test_img(img_path, case_name):
     z = tmp_img.shape[0]
     z_s = 0
     z_split = []
+    _crop_margin = getattr(opt, 'crop_margin', 3)
+    _ratio = getattr(opt, 'ratio', 4)
+    _D = (opt.vc_z - 1) * _ratio + 1 - 2 * _crop_margin
+    _lr_step = max(1, _D // _ratio)
     while z_s + opt.vc_z < z:
         z_split.append(z_s)
-        z_s += (opt.vc_z - 2)
+        z_s += _lr_step
 
     if z - opt.vc_z > z_split[-1]:
         z_split.append(z - opt.vc_z)

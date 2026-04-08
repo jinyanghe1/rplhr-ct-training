@@ -1,4 +1,5 @@
 # full assembly of the sub-parts to form the complete net
+# Ratio-Aware version: out_z, slice_sequence, positional encoding 动态计算
 
 import torch.nn.functional as F
 import math
@@ -11,6 +12,7 @@ def positionalencoding1d(d_model, length, ratio):
     """
     :param d_model: dimension of the model
     :param length: length of positions
+    :param ratio: scaling ratio (used in position encoding)
     :return: length*d_model position matrix
     """
     if d_model % 2 != 0:
@@ -24,6 +26,7 @@ def positionalencoding1d(d_model, length, ratio):
     pe[:, 1::2] = torch.cos(position.float() * div_term)
 
     return pe
+
 
 class TVSRN(nn.Module):
     def __init__(self):
@@ -57,28 +60,21 @@ class TVSRN(nn.Module):
 
         # region
         ######################## MAE MToken ########################
+        # Ratio-Aware: 保留最大尺寸的可学习 mask token 参数
+        # 动态 out_z 在 forward 中根据 ratio 计算
         self.c = E_num_out_ch
-        self.out_z = (opt.c_z - 1) * opt.ratio + 1
+        self.c_z = opt.c_z
+        self.c_y = opt.c_y
+        self.c_x = opt.c_x
+
+        # 计算最大可能的 out_z (ratio=5 时最大)
+        max_ratio = getattr(opt, 'max_ratio', 5)
+        self.max_out_z = (opt.c_z - 1) * max_ratio + 1
         self.x_patch_mask = torch.nn.Parameter(
-            torch.zeros(self.out_z - opt.c_z, self.c, opt.c_y, opt.c_x)
+            torch.zeros(self.max_out_z - opt.c_z, self.c, opt.c_y, opt.c_x)
         )
 
-        if opt.T_pos == True:
-            positions_z = positionalencoding1d(self.c, self.out_z, 1).unsqueeze(2).unsqueeze(2)
-            self.register_buffer('positions_z', positions_z, persistent=False)
-
-        slice_list = list(range(self.out_z))
-        vis_list = slice_list[:opt.c_z]
-        mask_list = slice_list[opt.c_z:]
-        re_list = []
-
-        while len(vis_list) != 0:
-            if len(re_list) % opt.ratio == 0:
-                re_list.append(vis_list.pop(0))
-            else:
-                re_list.append(mask_list.pop(0))
-
-        self.register_buffer('slice_sequence', torch.tensor(re_list, dtype=torch.long), persistent=False)
+        # positional encoding 和 slice_sequence 移到 forward 动态计算
         # endregion
 
         # region
@@ -88,20 +84,23 @@ class TVSRN(nn.Module):
         D_T_num_heads = [opt.TD_n] * opt.TD_Tl
 
         D_I_depths = [opt.TD_Id] * opt.TD_Il
-        D_T_num_heads = [opt.TD_n] * opt.TD_Il
+        D_I_num_heads = [opt.TD_n] * opt.TD_Il
 
         T_win = opt.TD_Tw
         I_win = opt.TD_Iw
 
+        # 使用默认 ratio 初始化 Decoder (权重可在 forward 中被不同 out_z 使用)
+        default_out_z = (opt.c_z - 1) * opt.ratio + 1
+
         for i in range(1, opt.TD_s+1):
             T_embed = self.c * self.D_patch
-            exec('''self.Decoder_T%s = Swin_backbone_unConv(img_size=(self.out_z, img_size), embed_dim=T_embed,
+            exec('''self.Decoder_T%s = Swin_backbone_unConv(img_size=(default_out_z, img_size), embed_dim=T_embed,
                                          depths=D_T_depths, num_heads=D_T_num_heads, window_size=T_win,
                                          mlp_ratio=mlp_ratio)''' % (i))
 
-            I_embed = self.c * self.out_z
+            I_embed = self.c * default_out_z
             exec('''self.Decoder_I%s = Swin_backbone_unConv(img_size=img_size, embed_dim=I_embed,
-                                            depths=D_I_depths, num_heads=D_T_num_heads, window_size=I_win,
+                                            depths=D_I_depths, num_heads=D_I_num_heads, window_size=I_win,
                                             mlp_ratio=mlp_ratio)''' % (i))
         # endregion
 
@@ -120,6 +119,24 @@ class TVSRN(nn.Module):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
+
+    def _build_slice_sequence(self, c_z, out_z, ratio, device):
+        """
+        动态构建 slice sequence: 已知切片和 mask 切片的交错排列
+        与 __init__ 中原始逻辑完全一致，只是移到 forward 中动态计算
+        """
+        slice_list = list(range(out_z))
+        vis_list = slice_list[:c_z]
+        mask_list = slice_list[c_z:]
+        re_list = []
+
+        while len(vis_list) != 0:
+            if len(re_list) % ratio == 0:
+                re_list.append(vis_list.pop(0))
+            else:
+                re_list.append(mask_list.pop(0))
+
+        return torch.tensor(re_list, dtype=torch.long, device=device)
 
     def cal_z(self, x, D):
         x_in = x.reshape(1, -1, opt.c_y, opt.c_x)
@@ -142,8 +159,22 @@ class TVSRN(nn.Module):
 
         return x_out
 
-    def forward(self, x):
+    def forward(self, x, ratio=None):
+        """
+        Ratio-Aware forward
+        Args:
+            x: input tensor [B, 1, c_z, c_y, c_x]
+            ratio: 超分倍率 (默认使用 opt.ratio)
+        Returns:
+            output tensor [1, 1, target_z, c_y, c_x]
+        """
+        if ratio is None:
+            ratio = opt.ratio
+
         x = x.squeeze().unsqueeze(0)
+
+        # ========== 动态计算 out_z ==========
+        out_z = (self.c_z - 1) * ratio + 1
 
         # Encoder
         x_patch = einops.rearrange(x, 'B C (nH hp) (nW wp) -> B (C hp wp) nH nW', wp=self.E_patch, hp=self.E_patch)
@@ -151,13 +182,24 @@ class TVSRN(nn.Module):
         x_SF = einops.rearrange(x_LP, 'B (C hp wp) nH nW -> B C (nH hp) (nW wp)', wp=self.E_patch, hp=self.E_patch)
         x_Eout = self.Encoder.forward_features(x_SF) + x_SF
 
-        # Token
+        # ========== 动态 MToken ==========
         x_patch_vis = x_Eout.reshape(-1, self.c, opt.c_y, opt.c_x)
-        x_patch_embed = torch.cat([x_patch_vis, self.x_patch_mask], dim=0)
-        x_patch_embed = x_patch_embed[self.slice_sequence]
 
+        # 动态截取 mask tokens (前 num_masks 个)
+        num_masks = out_z - self.c_z
+        x_patch_mask = self.x_patch_mask[:num_masks]
+
+        x_patch_embed = torch.cat([x_patch_vis, x_patch_mask], dim=0)
+
+        # 动态构建 slice sequence
+        slice_sequence = self._build_slice_sequence(self.c_z, out_z, ratio, x.device)
+        x_patch_embed = x_patch_embed[slice_sequence]
+
+        # ========== 动态 Positional Encoding ==========
         if opt.T_pos:
-            trans_input = x_patch_embed + self.positions_z
+            positions_z = positionalencoding1d(self.c, out_z, 1).unsqueeze(2).unsqueeze(2)
+            positions_z = positions_z.to(x.device)
+            trans_input = x_patch_embed + positions_z
         else:
             trans_input = x_patch_embed
 
@@ -171,15 +213,23 @@ class TVSRN(nn.Module):
         trans_output = trans_output.reshape(1, self.c, -1, opt.c_y, opt.c_x)
         x_out = self.conv_last(self.conv_before_upsample(trans_output))
 
-        # ========== Dynamic cropping based on ratio and c_z ==========
-        # For ratio=4, c_z=6: out_z=21, crop 5 layers -> 16 layers output
-        # For ratio=5, c_z=4: out_z=16, crop 6 layers -> 10 layers output (default)
-        target_ratio = getattr(opt, 'ratio', 5)
-        target_cz = getattr(opt, 'c_z', 4)
+        # ========== 统一裁剪逻辑 ==========
+        # 计算目标输出 z 维度
+        # 对于 ratio=4, c_z=4: out_z=13, 中心裁剪后保留有效区域
+        # 对于 ratio=5, c_z=4: out_z=16, 中心裁剪后保留有效区域
+        # 裁剪策略: 去掉首尾的边界层 (边界效应)
+        crop_start = out_z // 4   # 近似 1/4 作为起始裁剪
+        crop_end = out_z - out_z // 4  # 近似 3/4 作为结束裁剪
 
-        if target_ratio == 4 and target_cz == 6:
-            # c_z=6, ratio=4: out_z=21, crop 5 layers (2 from start, 3 from end) -> 16
+        # 但保持与原始逻辑一致的裁剪方式
+        # 原始: ratio=5,c_z=4 -> crop 3:-3 (crop 6 layers)
+        # 原始: ratio=4,c_z=6 -> crop 2:-3 (crop 5 layers)
+        # 通用化: crop_start 和 crop_end
+        if ratio == 4 and self.c_z == 6:
             return x_out[:, :, 2:-3]
-        else:
-            # Default: crop 6 layers
+        elif ratio == 5 and self.c_z == 4:
             return x_out[:, :, 3:-3]
+        else:
+            # 通用裁剪: 对称裁剪边界
+            margin = max(1, out_z // 8)
+            return x_out[:, :, margin:-margin]

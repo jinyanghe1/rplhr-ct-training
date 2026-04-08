@@ -158,12 +158,12 @@ elif y_pre.shape[2] < target_z:
 | Step | 任务 | 目标 | 状态 |
 |------|------|------|------|
 | A1 | 更新 Roadmap | 文档化 Ratio-Aware 方案 | ✅ 完成 |
-| A2 | 修改 model_TransSR.py | ratio-aware 动态计算 | ⏳ 待实施 |
-| A3 | 修改 train.py | 传入 ratio 参数 | ⏳ 待实施 |
-| A4 | 修改 val.py | 固定 ratio=4 | ⏳ 待实施 |
-| A5 | 统一 Loss 计算域 | GT/输出同分辨率 | ⏳ 待实施 |
-| A6 | 创建预训练配置 | ratio=5 配置文件 | ⏳ 待实施 |
-| A7 | AutoDL 预训练 | PSNR > 30 dB | ⏳ 待实施 |
+| A2 | 修改 model_TransSR.py | Decoder_I max_out_z + cal_z零填充 + crop_margin | ✅ 完成 |
+| A3 | 修改 train.py | 传入 ratio=opt.ratio + 参数化重建 | ✅ 完成 |
+| A4 | 修改 val.py | 固定 ratio=4 + 参数化重建 | ✅ 完成 |
+| A5 | 修改 test.py | ratio=opt.ratio + 参数化重建 | ✅ 完成 |
+| A6 | 更新 config/default.txt | 新增 max_ratio=5, crop_margin=3 | ✅ 完成 |
+| A7 | AutoDL 预训练 | PSNR > 30 dB | ⏳ 进行中 |
 
 ### Phase B: 自用数据集 Finetune (Phase A完成后)
 
@@ -196,6 +196,6 @@ elif y_pre.shape[2] < target_z:
 
 ---
 
-*最后更新: 2026-04-08*
-*策略版本: v3.0 - Ratio-Aware 架构重构*
-*下次更新: 预训练启动后*
+*最后更新: 2025-07-18*
+*策略版本: v3.1 - Ratio-Aware 代码改动完成, 准备 AutoDL 训练*
+*下次更新: 预训练完成后*

@@ -15,6 +15,8 @@ loss_f = 'L1'
 ### data
 dim = 1
 ratio = 4
+max_ratio = 5
+crop_margin = 3
 
 ### Task based model design
 ### TVSRN

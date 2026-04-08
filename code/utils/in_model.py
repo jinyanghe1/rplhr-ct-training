@@ -10,6 +10,36 @@ from builtins import range
 from .augmentation import CTVolumetricAugmentation, normalize_ct, clip_ct_values
 
 ################################## for data ##################################
+
+def _auto_normalize_ct_pair(lr_data, hr_data):
+    """
+    自动归一化CT数据对到[0,1]范围，匹配公开RPLHR-CT数据集格式。
+    
+    公开数据已用 (HU + 1024) / 4096 归一化到 [0, ~0.9]。
+    宣武数据未归一化，且不同case的HU偏移不一致。
+    
+    关键：LR和HR使用相同的偏移决策，避免LR/HR映射不一致。
+    """
+    lr_max = np.max(lr_data)
+    hr_max = np.max(hr_data)
+    if lr_max <= 10.0 and hr_max <= 10.0:
+        return lr_data, hr_data
+
+    if lr_max > 5000 or hr_max > 5000:
+        import warnings
+        warnings.warn(f"CT data has extreme values (LR max={lr_max:.0f}, HR max={hr_max:.0f}), "
+                      f"possible metal artifact. Clipping to [0, 4096].")
+
+    combined_p01 = min(np.percentile(lr_data, 0.1), np.percentile(hr_data, 0.1))
+    if combined_p01 < -500:
+        lr_data = lr_data + 1024.0
+        hr_data = hr_data + 1024.0
+
+    lr_data = np.clip(lr_data, 0, 4096) / 4096.0
+    hr_data = np.clip(hr_data, 0, 4096) / 4096.0
+    return lr_data.astype(np.float32), hr_data.astype(np.float32)
+
+
 def get_train_img(img_path, case_name):
     """
     加载训练数据并应用增强
@@ -33,6 +63,10 @@ def get_train_img(img_path, case_name):
 
     case_img_path = os.path.join(img_path, 'train', '5mm', case_name + '.nii.gz')
     tmp_img = sitk.GetArrayFromImage(sitk.ReadImage(case_img_path))
+
+    # 自动归一化（对未归一化的数据如宣武数据集生效，对已归一化的公开数据无影响）
+    if getattr(opt, 'normalize_ct_input', False):
+        tmp_img, tmp_mask = _auto_normalize_ct_pair(tmp_img, tmp_mask)
 
     z = tmp_img.shape[0]
     z_s = random.randint(0, z - 1 - opt.c_z)
@@ -96,6 +130,9 @@ def get_val_img(img_path, case_name):
     case_img_path = os.path.join(img_path, 'val', '5mm', case_name + '.nii.gz')
     tmp_img = sitk.GetArrayFromImage(sitk.ReadImage(case_img_path))
 
+    if getattr(opt, 'normalize_ct_input', False):
+        tmp_img, tmp_mask = _auto_normalize_ct_pair(tmp_img, tmp_mask)
+
     if opt.mode != 'test':
         tmp_img = tmp_img[:, 128:-128, 128:-128]
         tmp_mask = tmp_mask[:, 128:-128, 128:-128]
@@ -144,6 +181,9 @@ def get_test_img(img_path, case_name):
 
     case_img_path = os.path.join(img_path, 'test', '5mm', case_name + '.nii.gz')
     tmp_img = sitk.GetArrayFromImage(sitk.ReadImage(case_img_path))
+
+    if getattr(opt, 'normalize_ct_input', False):
+        tmp_img, tmp_mask = _auto_normalize_ct_pair(tmp_img, tmp_mask)
 
     z = tmp_img.shape[0]
     z_s = 0

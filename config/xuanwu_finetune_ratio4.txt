@@ -1,0 +1,111 @@
+########## spec_config ##########
+
+### Xuanwu数据集Finetune配置 (ratio=4, 基于预训练权重)
+### 数据集: xuanwu_dataset
+net_idx = 'xuanwu_finetune_ratio4'
+path_key = 'dataset01_xuanwu'
+
+# loss
+loss_f = 'L1'
+
+### data
+dim = 1
+ratio = 4
+max_ratio = 5
+
+### Task based model design
+### TVSRN
+# global config
+T_mlp = 4
+T_pos = True
+
+# Encoder config
+TE_c = 8
+TE_l = 1
+TE_d = 4
+TE_n = 8
+TE_w = 8
+TE_p = 8
+
+# Decoder config
+TD_p = 8
+TD_s = 1
+
+TD_Tw = 1
+TD_Tl = 1
+TD_Td = 4
+
+TD_Iw = 8
+TD_Il = 2
+TD_Id = 4
+TD_n = 8
+
+########## common_config ##########
+**** hardware config ****
+gpu_idx = 0
+*************************
+
+**** mode ****
+mode = 'train'
+***********************************
+
+**** 网络部分 ****
+pre_train = True
+
+***********************************
+
+**** train & val config ****
+# train set - finetune用较少epoch
+epoch = 500
+start_epoch = 1
+gap_epoch = 100
+
+# dataloader set
+train_bs = 1
+num_workers = 4
+val_bs = 1
+test_num_workers = 4
+***********************************
+
+**** data config ****
+c_z = 6
+c_y = 256
+c_x = 256
+
+v_crop = True
+vc_z = 6
+vc_y = 256
+vc_x = 256
+
+mirror = False
+***********************************
+
+**** optimizer config ****
+optim = 'AdamW'
+wd = 0.0001
+lr = 0.0001
+flood = False
+gap_val = 5
+
+# 学习率策略 - finetune用更小的学习率
+patience = 10
+cos_lr = True
+Tmax = 100
+lr_gap = 100
+cycle_r = False
+Tmin = False
+***********************************
+
+**** model config ****
+save_log = False
+***********************************
+
+**** EMA & Gradient Clipping & Warmup config ****
+use_ema = True
+ema_decay = 0.995
+ema_warmup_epochs = 10
+use_grad_clip = True
+grad_clip_norm = 1.0
+use_warmup = True
+warmup_epochs = 5
+***********************************

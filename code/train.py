@@ -44,7 +44,7 @@ def train(**kwargs):
     checkpoint_root = kwargs.pop('checkpoint_root', '../checkpoints')
     archive_every_epoch = int(kwargs.pop('archive_every_epoch', 0))
     resume_from = kwargs.pop('resume_from', None)
-    freeze_encoder = _to_bool(kwargs.pop('freeze_encoder', False))
+    freeze_mode = str(kwargs.pop('freeze_mode', 'none')).strip().lower()
     if val_ssim_batch_size <= 0:
         raise ValueError('val_ssim_batch_size must be > 0')
     if val_ssim_stride <= 0:
@@ -89,18 +89,39 @@ def train(**kwargs):
         del ckpt
         print('Checkpoint loaded successfully')
 
-    # ========== Freeze encoder for small-data finetune ==========
-    # Only freeze Encoder (Swin backbone), keep LP trainable for domain adaptation.
-    # LP needs to adapt to different intensity distributions (e.g., public vs Xuanwu).
-    if freeze_encoder:
+    # ========== Freeze layers for small-data finetune ==========
+    # freeze_mode options:
+    #   'none'            — all params trainable (default)
+    #   'encoder'         — freeze Encoder only (58K params, 0.7%)
+    #   'encoder_mask'    — freeze Encoder + x_patch_mask (6.35M, 73.2%)
+    #   'lp_encoder_mask' — freeze LP + Encoder + x_patch_mask (6.88M, 79.2%)
+    #   'max_freeze'      — freeze LP + Encoder + x_patch_mask + Decoder_I (8.48M, 97.7%)
+    if freeze_mode != 'none':
+        freeze_names = set()
+        if freeze_mode in ('encoder', 'encoder_mask', 'lp_encoder_mask', 'max_freeze'):
+            freeze_names.add('Encoder')
+        if freeze_mode in ('encoder_mask', 'lp_encoder_mask', 'max_freeze'):
+            freeze_names.add('x_patch_mask')
+        if freeze_mode in ('lp_encoder_mask', 'max_freeze'):
+            freeze_names.add('LP')
+        if freeze_mode == 'max_freeze':
+            freeze_names.add('Decoder_I')
+
         frozen_count = 0
-        for param in net.Encoder.parameters():
-            param.requires_grad = False
-            frozen_count += param.numel()
+        for name, param in net.named_parameters():
+            module_prefix = name.split('.')[0]
+            if module_prefix in freeze_names or name in freeze_names:
+                param.requires_grad = False
+                frozen_count += param.numel()
+
         total_count = sum(p.numel() for p in net.parameters())
         trainable_count = sum(p.numel() for p in net.parameters() if p.requires_grad)
-        print(f'[freeze_encoder] Frozen Encoder: {frozen_count:,} params')
-        print(f'[freeze_encoder] Trainable (LP+MToken+Decoder+Output): {trainable_count:,} / {total_count:,} total')
+        print(f'[freeze_mode={freeze_mode}] Frozen: {frozen_count:,} params ({100*frozen_count/total_count:.1f}%)')
+        print(f'[freeze_mode={freeze_mode}] Trainable: {trainable_count:,} / {total_count:,} ({100*trainable_count/total_count:.1f}%)')
+        # Log per-module status
+        for name, param in net.named_parameters():
+            if not name.startswith(('Encoder.', 'LP.', 'Decoder_T', 'Decoder_I', 'conv_')):
+                print(f'  {name}: {"FROZEN" if not param.requires_grad else "trainable"} ({param.numel():,})')
 
     ###### optim ######
     lr = opt.lr

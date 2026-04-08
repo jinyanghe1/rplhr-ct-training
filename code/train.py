@@ -90,20 +90,17 @@ def train(**kwargs):
         print('Checkpoint loaded successfully')
 
     # ========== Freeze encoder for small-data finetune ==========
+    # Only freeze Encoder (Swin backbone), keep LP trainable for domain adaptation.
+    # LP needs to adapt to different intensity distributions (e.g., public vs Xuanwu).
     if freeze_encoder:
         frozen_count = 0
-        # Freeze LP (Linear Projection) — ratio-agnostic input embedding
-        for param in net.LP.parameters():
-            param.requires_grad = False
-            frozen_count += param.numel()
-        # Freeze Encoder (Swin backbone) — ratio-agnostic xy-plane features
         for param in net.Encoder.parameters():
             param.requires_grad = False
             frozen_count += param.numel()
         total_count = sum(p.numel() for p in net.parameters())
         trainable_count = sum(p.numel() for p in net.parameters() if p.requires_grad)
-        print(f'[freeze_encoder] Frozen LP + Encoder: {frozen_count:,} params')
-        print(f'[freeze_encoder] Trainable (MToken+Decoder+Output): {trainable_count:,} / {total_count:,} total')
+        print(f'[freeze_encoder] Frozen Encoder: {frozen_count:,} params')
+        print(f'[freeze_encoder] Trainable (LP+MToken+Decoder+Output): {trainable_count:,} / {total_count:,} total')
 
     ###### optim ######
     lr = opt.lr

@@ -176,7 +176,16 @@ def train(**kwargs):
             x = x.float().to(device, non_blocking=True)
             label = y.float().to(device, non_blocking=True)
 
-            y_pre = net(x)
+            y_pre = net(x, ratio=opt.ratio)
+            # ========== 统一 Loss 计算域 ==========
+            # 确保输出和GT在同一物理分辨率
+            if y_pre.shape != label.shape:
+                # 在 z 维度上对齐
+                min_z = min(y_pre.shape[2], label.shape[2])
+                diff_pred = y_pre.shape[2] - min_z
+                diff_label = label.shape[2] - min_z
+                y_pre = y_pre[:, :, diff_pred//2:diff_pred//2+min_z]
+                label = label[:, :, diff_label//2:diff_label//2+min_z]
             loss = train_criterion(y_pre, label)
 
             # backward
@@ -224,7 +233,7 @@ def train(**kwargs):
                         tmp_pos_z, tmp_pos_y, tmp_pos_x = pos
 
                         tmp_x = torch.from_numpy(tmp_x).unsqueeze(0).unsqueeze(0).float().to(device)
-                        tmp_y_pre = net(tmp_x)
+                        tmp_y_pre = net(tmp_x, ratio=opt.ratio)
                         tmp_y_pre = torch.clamp(tmp_y_pre, 0, 1)
                         y_for_psnr = tmp_y_pre.data.squeeze().cpu().numpy()
 

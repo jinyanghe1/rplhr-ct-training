@@ -76,7 +76,7 @@ def train(**kwargs):
     # Resume from checkpoint if specified
     if resume_from and os.path.isfile(resume_from):
         print(f'Resuming from: {resume_from}')
-        ckpt = torch.load(resume_from, map_location=device)
+        ckpt = torch.load(resume_from, map_location=device, weights_only=False)
         if 'net' in ckpt:
             loaded_net = ckpt['net']
             if hasattr(loaded_net, 'state_dict'):

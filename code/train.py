@@ -238,14 +238,15 @@ def train(**kwargs):
                         y_for_psnr = tmp_y_pre.data.squeeze().cpu().numpy()
 
                         D = y_for_psnr.shape[0]
-                        pos_z_s = 5 * tmp_pos_z + 3
+                        crop_margin = getattr(opt, 'crop_margin', 3)
+                        pos_z_s = opt.ratio * tmp_pos_z + crop_margin
                         pos_y_s = tmp_pos_y
                         pos_x_s = tmp_pos_x
 
                         y_pre[pos_z_s: pos_z_s+D, pos_y_s:pos_y_s+opt.vc_y, pos_x_s:pos_x_s+opt.vc_x] = y_for_psnr
 
-                    y_pre_valid = y_pre[5:-5]
-                    y_valid = y[5:-5]
+                    y_pre_valid = y_pre[opt.ratio:-opt.ratio]
+                    y_valid = y[opt.ratio:-opt.ratio]
                     psnr = non_model.cal_psnr(y_pre_valid, y_valid)
                     psnr_list.append(psnr)
 

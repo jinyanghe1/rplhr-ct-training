@@ -129,6 +129,8 @@ def val(**kwargs):
 
             y_pre = np.zeros_like(y)
             pos_list = pos_list.data.numpy()[0]
+            val_ratio = 4  # val.py 固定 ratio=4
+            crop_margin = getattr(opt, 'crop_margin', 3)
 
             for pos_idx, pos in enumerate(pos_list):
                 tmp_x = x[pos_idx]
@@ -140,7 +142,7 @@ def val(**kwargs):
                 y_for_psnr = tmp_y_pre.data.squeeze().cpu().numpy()
 
                 D = y_for_psnr.shape[0]
-                pos_z_s = 5 * tmp_pos_z + 3
+                pos_z_s = val_ratio * tmp_pos_z + crop_margin
                 pos_y_s = tmp_pos_y
                 pos_x_s = tmp_pos_x
 
@@ -148,8 +150,8 @@ def val(**kwargs):
 
             del tmp_y_pre, tmp_x
 
-            y_pre = y_pre[5:-5]
-            y = y[5:-5]
+            y_pre = y_pre[val_ratio:-val_ratio]
+            y = y[val_ratio:-val_ratio]
 
             save_name_pre = save_output_folder + '%s_pre.nii.gz' % case_name
             output_pre = sitk.GetImageFromArray(y_pre)

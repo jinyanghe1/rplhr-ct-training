@@ -95,7 +95,7 @@ def train(**kwargs):
     #   'encoder'         — freeze Encoder only (58K params, 0.7%)
     #   'encoder_mask'    — freeze Encoder + x_patch_mask (6.35M, 73.2%)
     #   'lp_encoder_mask' — freeze LP + Encoder + x_patch_mask (6.88M, 79.2%)
-    #   'max_freeze'      — freeze LP + Encoder + x_patch_mask + Decoder_I (8.48M, 97.7%)
+    #   'max_freeze'      — freeze LP + Encoder + x_patch_mask + Decoder_I1 (8.48M, 97.7%)
     if freeze_mode != 'none':
         freeze_names = set()
         if freeze_mode in ('encoder', 'encoder_mask', 'lp_encoder_mask', 'max_freeze'):
@@ -109,8 +109,10 @@ def train(**kwargs):
 
         frozen_count = 0
         for name, param in net.named_parameters():
-            module_prefix = name.split('.')[0]
-            if module_prefix in freeze_names or name in freeze_names:
+            # Use startswith to match e.g. 'Decoder_I' → 'Decoder_I1.layers...'
+            should_freeze = any(name == fn or name.startswith(fn + '.') or name.startswith(fn)
+                                for fn in freeze_names)
+            if should_freeze:
                 param.requires_grad = False
                 frozen_count += param.numel()
 

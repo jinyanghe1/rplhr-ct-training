@@ -96,8 +96,19 @@ def get_train_img(img_path, case_name):
             prob=opt.aug_prob if hasattr(opt, 'aug_prob') else 0.5
         )
         
-        # 获取增强配置（如果提供）
-        aug_config = getattr(opt, 'aug_config', None)
+        # Safe augmentation config for medical CT finetune (small data)
+        # Only flip + light noise; disable elastic/intensity/artifact
+        aug_config = getattr(opt, 'aug_config', {
+            'flip_prob': 0.5,
+            'rotate_prob': 0.0,
+            'shift_prob': 0.0,
+            'intensity_scale_prob': 0.0,
+            'intensity_shift_prob': 0.0,
+            'contrast_prob': 0.0,
+            'gaussian_noise_prob': 0.2,
+            'slice_artifact_prob': 0.0,
+            'elastic_prob': 0.0,
+        })
         
         # 应用训练增强
         crop_img, crop_mask = aug.apply_train_augmentation(

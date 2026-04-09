@@ -276,7 +276,11 @@ def train(**kwargs):
         tmp_lr = optimizer.__getstate__()['param_groups'][0]['lr']
         print('================= Epoch %s lr=%.6f =================' % (tmp_epoch, tmp_lr))
 
-        if tmp_epoch > epoch_save + opt.gap_epoch or lr_change == 4:
+        # Legacy stop: gap_epoch overflow OR 4 LR reductions (ReduceLROnPlateau only)
+        # With cosine LR, lr changes every epoch, so skip the lr_change check
+        if tmp_epoch > epoch_save + opt.gap_epoch:
+            break
+        if not (opt.cos_lr == True or use_warmup) and lr_change == 4:
             break
 
         # Train

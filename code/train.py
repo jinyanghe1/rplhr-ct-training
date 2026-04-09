@@ -20,6 +20,10 @@ import cv2
 import warnings
 warnings.filterwarnings("ignore")
 
+# Phase B imports
+from loss_eagle3d import EAGLELoss3D, CharbonnierLoss, L1SSIMLoss3D
+from training.ema import EMA
+
 import resource
 rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
 resource.setrlimit(resource.RLIMIT_NOFILE, (2000, rlimit[1]))
@@ -45,6 +49,28 @@ def train(**kwargs):
     archive_every_epoch = int(kwargs.pop('archive_every_epoch', 0))
     resume_from = kwargs.pop('resume_from', None)
     freeze_mode = str(kwargs.pop('freeze_mode', 'none')).strip().lower()
+
+    # Phase B: Early stopping
+    early_stop_patience = int(kwargs.pop('early_stop_patience', 20))
+
+    # Phase B: Warmup + Gradient Clipping
+    use_warmup = _to_bool(kwargs.pop('use_warmup', False))
+    warmup_epochs = int(kwargs.pop('warmup_epochs', 5))
+    use_grad_clip = _to_bool(kwargs.pop('use_grad_clip', False))
+    grad_clip_norm = float(kwargs.pop('grad_clip_norm', 1.0))
+
+    # Phase B: EMA
+    use_ema = _to_bool(kwargs.pop('use_ema', False))
+    ema_decay = float(kwargs.pop('ema_decay', 0.995))
+    ema_warmup_epochs = int(kwargs.pop('ema_warmup_epochs', 10))
+
+    # Phase B: Data augmentation (passed through to opt for in_model.py)
+    # use_augmentation, aug_prob etc. are handled via opt config
+
+    # Phase B: MAE auxiliary task
+    use_mae = _to_bool(kwargs.pop('use_mae', False))
+    mae_prob = float(kwargs.pop('mae_prob', 0.3))
+    mae_weight = float(kwargs.pop('mae_weight', 0.1))
     if val_ssim_batch_size <= 0:
         raise ValueError('val_ssim_batch_size must be > 0')
     if val_ssim_stride <= 0:
@@ -125,6 +151,12 @@ def train(**kwargs):
             if not name.startswith(('Encoder.', 'LP.', 'Decoder_T', 'Decoder_I', 'conv_')):
                 print(f'  {name}: {"FROZEN" if not param.requires_grad else "trainable"} ({param.numel():,})')
 
+    ###### EMA (Phase B) ######
+    ema = None
+    if use_ema:
+        ema = EMA(net, decay=ema_decay, device=device)
+        print(f'EMA enabled: decay={ema_decay}, warmup_epochs={ema_warmup_epochs}')
+
     ###### optim ######
     lr = opt.lr
     if opt.optim == 'SGD':
@@ -143,8 +175,17 @@ def train(**kwargs):
         print('================== AdamW lr = %.6f ==================' % lr)
 
     if opt.cos_lr:
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=opt.Tmax, \
-                                                       eta_min=opt.lr / opt.lr_gap)
+        if use_warmup:
+            warmup_sched = torch.optim.lr_scheduler.LinearLR(
+                optimizer, start_factor=0.01, end_factor=1.0, total_iters=warmup_epochs)
+            cosine_sched = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=max(opt.Tmax - warmup_epochs, 1), eta_min=opt.lr / opt.lr_gap)
+            scheduler = torch.optim.lr_scheduler.SequentialLR(
+                optimizer, schedulers=[warmup_sched, cosine_sched], milestones=[warmup_epochs])
+            print(f'Scheduler: Warmup({warmup_epochs}ep) + CosineAnnealing(T_max={opt.Tmax - warmup_epochs})')
+        else:
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=opt.Tmax, eta_min=opt.lr / opt.lr_gap)
     elif opt.Tmin == True:
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min',
                                                                patience=opt.patience, threshold=0.000001)
@@ -154,7 +195,20 @@ def train(**kwargs):
 
     ###### loss ######
     print('Use %s loss'%opt.loss_f)
-    train_criterion = nn.L1Loss()
+    if opt.loss_f == 'eagle3d':
+        eagle_alpha = float(getattr(opt, 'eagle_alpha', 0.1))
+        train_criterion = EAGLELoss3D(alpha=eagle_alpha).to(device)
+        print(f'  EAGLELoss3D alpha={eagle_alpha}')
+    elif opt.loss_f == 'charbonnier':
+        train_criterion = CharbonnierLoss()
+        print('  CharbonnierLoss eps=1e-6')
+    elif opt.loss_f == 'l1_ssim':
+        l1ssim_alpha = float(getattr(opt, 'l1ssim_alpha', 0.1))
+        train_criterion = L1SSIMLoss3D(alpha=l1ssim_alpha).to(device)
+        print(f'  L1SSIMLoss3D alpha={l1ssim_alpha}')
+    else:
+        train_criterion = nn.L1Loss()
+        print('  nn.L1Loss (default)')
 
     ###### Dataloader Setting ######
     def set_seed(seed):
@@ -200,7 +254,12 @@ def train(**kwargs):
     best_metric = 0
     lr_change = 0
     metric_history = []
+    epochs_since_improvement = 0  # Phase B: early stopping counter
     print(f'checkpoints will be saved to: {checkpoint_dir}')
+    if early_stop_patience > 0:
+        print(f'early stopping enabled: patience={early_stop_patience} epochs')
+    if use_grad_clip:
+        print(f'gradient clipping enabled: max_norm={grad_clip_norm}')
     if compute_val_ssim:
         print(f'val SSIM enabled, batch_size={val_ssim_batch_size}, stride={val_ssim_stride}')
     else:
@@ -241,10 +300,33 @@ def train(**kwargs):
                 label = label[:, :, diff_label//2:diff_label//2+min_z]
             loss = train_criterion(y_pre, label)
 
+            # Phase B: MAE auxiliary task
+            if use_mae and random.random() < mae_prob:
+                masked_x = x.clone()
+                mask_idx = random.randint(0, opt.c_z - 1)
+                masked_x[:, :, mask_idx] = 0  # zero out one slice
+                y_mae = net(masked_x, ratio=opt.ratio)
+                if y_mae.shape != label.shape:
+                    min_z_mae = min(y_mae.shape[2], label.shape[2])
+                    dp = y_mae.shape[2] - min_z_mae
+                    dl = label.shape[2] - min_z_mae
+                    y_mae = y_mae[:, :, dp//2:dp//2+min_z_mae]
+                mae_loss = F.l1_loss(y_mae, label[:, :, :y_mae.shape[2]])
+                loss = loss + mae_weight * mae_loss
+                del y_mae, masked_x
+
             # backward
             optimizer.zero_grad()
             loss.backward()
+            if use_grad_clip:
+                torch.nn.utils.clip_grad_norm_(
+                    filter(lambda p: p.requires_grad, net.parameters()), grad_clip_norm)
             optimizer.step()
+
+            # Phase B: EMA update
+            if ema is not None:
+                ema.update(net)
+
             train_loss += loss.item()
             del y_pre, label, x
 
@@ -265,91 +347,115 @@ def train(**kwargs):
         else:
             val_start_time = time.time()
             net = net.eval()
-            with torch.no_grad():
-                psnr_list = []
-                ssim_list = [] if compute_val_ssim else None
 
-                for i, return_list in tqdm(enumerate(val_batch)):
-                    case_name, x, y, pos_list = return_list
-                    case_name = case_name[0]
-                    x = x.squeeze().data.numpy()
-                    y = y.squeeze().data.numpy()
+            # Phase B: Apply EMA shadow for validation (after warmup)
+            ema_applied = False
+            if ema is not None and e >= ema_warmup_epochs:
+                ema.apply_shadow(net)
+                ema_applied = True
 
-                    if e == 0 and i == 0:
-                        print('thin size:', y.shape)
+            try:
+                with torch.no_grad():
+                    psnr_list = []
+                    ssim_list = [] if compute_val_ssim else None
 
-                    y_pre = np.zeros_like(y)
-                    pos_list = pos_list.data.numpy()[0]
+                    for i, return_list in tqdm(enumerate(val_batch)):
+                        case_name, x, y, pos_list = return_list
+                        case_name = case_name[0]
+                        x = x.squeeze().data.numpy()
+                        y = y.squeeze().data.numpy()
 
-                    for pos_idx, pos in enumerate(pos_list):
-                        tmp_x = x[pos_idx]
-                        tmp_pos_z, tmp_pos_y, tmp_pos_x = pos
+                        if e == 0 and i == 0:
+                            print('thin size:', y.shape)
 
-                        tmp_x = torch.from_numpy(tmp_x).unsqueeze(0).unsqueeze(0).float().to(device)
-                        tmp_y_pre = net(tmp_x, ratio=opt.ratio)
-                        tmp_y_pre = torch.clamp(tmp_y_pre, 0, 1)
-                        y_for_psnr = tmp_y_pre.data.squeeze().cpu().numpy()
+                        y_pre = np.zeros_like(y)
+                        pos_list = pos_list.data.numpy()[0]
 
-                        D = y_for_psnr.shape[0]
-                        crop_margin = getattr(opt, 'crop_margin', 3)
-                        pos_z_s = opt.ratio * tmp_pos_z + crop_margin
-                        pos_y_s = tmp_pos_y
-                        pos_x_s = tmp_pos_x
+                        for pos_idx, pos in enumerate(pos_list):
+                            tmp_x = x[pos_idx]
+                            tmp_pos_z, tmp_pos_y, tmp_pos_x = pos
 
-                        y_pre[pos_z_s: pos_z_s+D, pos_y_s:pos_y_s+opt.vc_y, pos_x_s:pos_x_s+opt.vc_x] = y_for_psnr
+                            tmp_x = torch.from_numpy(tmp_x).unsqueeze(0).unsqueeze(0).float().to(device)
+                            tmp_y_pre = net(tmp_x, ratio=opt.ratio)
+                            tmp_y_pre = torch.clamp(tmp_y_pre, 0, 1)
+                            y_for_psnr = tmp_y_pre.data.squeeze().cpu().numpy()
 
-                    y_pre_valid = y_pre[opt.ratio:-opt.ratio]
-                    y_valid = y[opt.ratio:-opt.ratio]
-                    psnr = non_model.cal_psnr(y_pre_valid, y_valid)
-                    psnr_list.append(psnr)
+                            D = y_for_psnr.shape[0]
+                            crop_margin = getattr(opt, 'crop_margin', 3)
+                            pos_z_s = opt.ratio * tmp_pos_z + crop_margin
+                            pos_y_s = tmp_pos_y
+                            pos_x_s = tmp_pos_x
 
-                    if compute_val_ssim:
-                        case_ssim = non_model.cal_ssim_volume(
-                            y_valid,
-                            y_pre_valid,
-                            device=device,
-                            batch_size=val_ssim_batch_size,
-                            stride=val_ssim_stride,
-                        )
-                        ssim_list.append(case_ssim)
+                            y_pre[pos_z_s: pos_z_s+D, pos_y_s:pos_y_s+opt.vc_y, pos_x_s:pos_x_s+opt.vc_x] = y_for_psnr
+
+                        y_pre_valid = y_pre[opt.ratio:-opt.ratio]
+                        y_valid = y[opt.ratio:-opt.ratio]
+                        psnr = non_model.cal_psnr(y_pre_valid, y_valid)
+                        psnr_list.append(psnr)
+
+                        if compute_val_ssim:
+                            case_ssim = non_model.cal_ssim_volume(
+                                y_valid,
+                                y_pre_valid,
+                                device=device,
+                                batch_size=val_ssim_batch_size,
+                                stride=val_ssim_stride,
+                            )
+                            ssim_list.append(case_ssim)
+
+                non_model.clear_device_cache(device)
+
+                psnr_val = float(np.array(psnr_list).mean())
+                val_elapsed = time.time() - val_start_time
+                ema_tag = ' [EMA]' if ema_applied else ''
+                if compute_val_ssim:
+                    ssim_val = float(np.array(ssim_list).mean())
+                    print('epoch %s, train_loss: %.4f, psnr_val: %.4f, ssim_val: %.6f, val_sec: %.1f%s' %
+                          (tmp_epoch, train_loss, psnr_val, ssim_val, val_elapsed, ema_tag))
+                else:
+                    print('epoch %s, train_loss: %.4f, psnr_val: %.4f, val_sec: %.1f%s' %
+                          (tmp_epoch, train_loss, psnr_val, val_elapsed, ema_tag))
+
+                if psnr_val > best_metric:
+                    best_metric = psnr_val
+                    epoch_save = tmp_epoch
+                    epochs_since_improvement = 0
+                    save_dict = {}
+                    save_dict['net'] = net
+                    save_dict['config_dict'] = config_dict
+                    if ema is not None:
+                        save_dict['ema_state'] = ema.state_dict()
+                    save_path = save_model_folder + \
+                                '%s_train_loss_%.4f_val_psnr_%.4f.pkl' % \
+                                   (str(tmp_epoch).rjust(3,'0'), train_loss, psnr_val)
+                    torch.save(save_dict, save_path)
+                    # Also save as best.pkl for easy resume
+                    best_path = os.path.join(save_model_folder, 'best.pkl')
+                    torch.save(save_dict, best_path)
+                    del save_dict
+                    print('====================== model save (best.pkl) ========================')
+                else:
+                    epochs_since_improvement += opt.gap_val if opt.gap_val > 0 else 1
+
+            finally:
+                # Phase B: Restore original params after EMA validation
+                if ema_applied:
+                    ema.restore(net)
 
             non_model.clear_device_cache(device)
 
-            psnr_val = float(np.array(psnr_list).mean())
-            val_elapsed = time.time() - val_start_time
-            if compute_val_ssim:
-                ssim_val = float(np.array(ssim_list).mean())
-                print('epoch %s, train_loss: %.4f, psnr_val: %.4f, ssim_val: %.6f, val_sec: %.1f' %
-                      (tmp_epoch, train_loss, psnr_val, ssim_val, val_elapsed))
-            else:
-                print('epoch %s, train_loss: %.4f, psnr_val: %.4f, val_sec: %.1f' %
-                      (tmp_epoch, train_loss, psnr_val, val_elapsed))
-
-            if psnr_val > best_metric:
-                best_metric = psnr_val
-                epoch_save = tmp_epoch
-                save_dict = {}
-                save_dict['net'] = net
-                save_dict['config_dict'] = config_dict
-                torch.save(save_dict, save_model_folder + \
-                            '%s_train_loss_%.4f_val_psnr_%.4f.pkl' %
-                               (str(tmp_epoch).rjust(3,'0'), train_loss, psnr_val))
-
-                del save_dict
-                print('====================== model save ========================')
-
-            if opt.cos_lr == True:
-                scheduler.step()
-            elif opt.Tmin == True:
-                scheduler.step(train_loss)
-            else:
+        # ========== Scheduler step (FIXED: every epoch, not just validation epochs) ==========
+        if opt.cos_lr == True or use_warmup:
+            scheduler.step()
+        elif opt.Tmin == True:
+            scheduler.step(train_loss)
+        else:
+            if psnr_val is not None:
                 scheduler.step(best_metric)
 
-            before_lr = optimizer.__getstate__()['param_groups'][0]['lr']
-            if before_lr != tmp_lr:
-                lr_change += 1
-
-            non_model.clear_device_cache(device)
+        before_lr = optimizer.__getstate__()['param_groups'][0]['lr']
+        if before_lr != tmp_lr:
+            lr_change += 1
 
         epoch_elapsed = time.time() - epoch_start_time
         metric_history.append({
@@ -378,6 +484,12 @@ def train(**kwargs):
 
         if pass_flag:
             continue
+
+        # Phase B: Early stopping check
+        if early_stop_patience > 0 and epochs_since_improvement >= early_stop_patience:
+            print(f'========== EARLY STOPPING at epoch {tmp_epoch} ==========')
+            print(f'No improvement in {epochs_since_improvement} epochs. Best PSNR={best_metric:.4f} at epoch {epoch_save}')
+            break
 
 if __name__ == '__main__':
     import fire

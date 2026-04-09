@@ -67,6 +67,9 @@ def train(**kwargs):
     # Phase B: Data augmentation (passed through to opt for in_model.py)
     # use_augmentation, aug_prob etc. are handled via opt config
 
+    # Phase B: Discriminative LR (lower LR for pretrained layers)
+    encoder_lr_scale = float(kwargs.pop('encoder_lr_scale', 1.0))
+
     # Phase B: MAE auxiliary task
     use_mae = _to_bool(kwargs.pop('use_mae', False))
     mae_prob = float(kwargs.pop('mae_prob', 0.3))
@@ -159,19 +162,37 @@ def train(**kwargs):
 
     ###### optim ######
     lr = opt.lr
+
+    # Build parameter groups (discriminative LR for pretrained layers)
+    if encoder_lr_scale < 1.0 and freeze_mode == 'none':
+        pretrained_params = []
+        new_params = []
+        for name, param in net.named_parameters():
+            if not param.requires_grad:
+                continue
+            if name.startswith(('Encoder', 'x_patch_mask', 'LP')):
+                pretrained_params.append(param)
+            else:
+                new_params.append(param)
+        param_groups = [
+            {'params': pretrained_params, 'lr': lr * encoder_lr_scale},
+            {'params': new_params, 'lr': lr},
+        ]
+        print(f'Discriminative LR: pretrained={lr*encoder_lr_scale:.6f} ({len(pretrained_params)} tensors), '
+              f'new={lr:.6f} ({len(new_params)} tensors)')
+    else:
+        param_groups = filter(lambda p: p.requires_grad, net.parameters())
+
     if opt.optim == 'SGD':
-        optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad, net.parameters()),
-                                    lr=lr, weight_decay=opt.wd, momentum=0.9)
+        optimizer = torch.optim.SGD(param_groups, lr=lr, weight_decay=opt.wd, momentum=0.9)
         print('================== SGD lr = %.6f ==================' % lr)
 
     elif opt.optim == 'Adam':
-        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, net.parameters()),
-                                      lr=lr, weight_decay=opt.wd)
+        optimizer = torch.optim.Adam(param_groups, lr=lr, weight_decay=opt.wd)
         print('================== Adam lr = %.6f ==================' % lr)
 
     elif opt.optim == 'AdamW':
-        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, net.parameters()),
-                                      lr=lr, weight_decay=opt.wd)
+        optimizer = torch.optim.AdamW(param_groups, lr=lr, weight_decay=opt.wd)
         print('================== AdamW lr = %.6f ==================' % lr)
 
     if opt.cos_lr:

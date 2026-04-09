@@ -1,0 +1,11 @@
+# 基线训练配置
+# 使用 Adam 优化器和 ReduceLROnPlateau 调度器
+
+optimizer = 'Adam'
+lr = 0.0003
+wd = 0.0001
+scheduler = 'ReduceLROnPlateau'
+patience = 15
+use_warmup = False
+use_grad_clip = False
+use_ema = False

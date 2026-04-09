@@ -1,0 +1,11 @@
+# SSIM Loss 配置文件
+# Structural Similarity Index Measure
+# 基于结构相似性的损失，关注图像结构信息
+
+loss_type=ssim
+
+# SSIM 窗口大小，默认 7
+window_size=7
+
+# 输入通道数，默认 1
+channel=1

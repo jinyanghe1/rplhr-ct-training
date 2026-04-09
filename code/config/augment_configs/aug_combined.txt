@@ -1,0 +1,84 @@
+# ============================================
+# 数据增强配置：组合增强（推荐配置）
+# Augmentation Config: Combined (Recommended)
+# ============================================
+# 本配置启用多种增强的组合，适用于：
+# - 常规训练
+# - 提升模型泛化能力
+# - 数据量有限时的增强策略
+# ============================================
+
+# ---- 基础设置 ----
+use_augmentation = True
+augment_types = ['flip', 'noise', 'elastic']
+# 可选值: 'flip', 'noise', 'elastic', 'elastic2d', 'intensity'
+# 注意: elastic计算量大，建议训练初期禁用或降低概率
+
+augment_probability = 0.5
+# 基础概率，各增强器会在此基础上应用
+
+# ---- 翻转增强参数 ----
+flip_axis = ['horizontal', 'vertical']
+# 可选: 'horizontal'/'h', 'vertical'/'v', 'depth'/'d'
+# 推荐: ['horizontal', 'vertical'] （不翻转深度）
+
+# ---- 噪声增强参数 ----
+noise_type = 'gaussian'
+# 可选: 'gaussian', 'poisson', 'both'
+# 推荐: 'gaussian' 或 'both'
+
+noise_sigma = 0.01
+# 高斯噪声强度
+# 推荐值: 0.005-0.02
+
+noise_scale = 1.0
+# 泊松噪声缩放因子
+
+# ---- 弹性形变参数 ----
+# 注意: 弹性形变计算量大，建议prob较低时使用
+elastic_alpha = 10.0
+# 变形幅度，值越大变形越大
+# 推荐值: 5-20
+
+elastic_sigma = 3.0
+# 平滑程度，值越大变形越平滑
+# 推荐值: 2-5
+# alpha/sigma 比值建议在 2-5 之间
+
+# ---- 强度变换参数（如启用intensity）----
+intensity_operations = ['scale', 'shift']
+# 可选: 'scale', 'shift', 'gamma', 'contrast'
+# 注意: CT值有物理意义，强度变换要保守
+
+intensity_scale_range = (0.9, 1.1)
+# 强度缩放范围，推荐: (0.9, 1.1)
+
+intensity_shift_range = (-30, 30)
+# 强度偏移范围(HU)，推荐: (-50, 50)
+
+intensity_gamma_range = (0.9, 1.1)
+# Gamma校正范围，推荐: (0.9, 1.1)
+
+intensity_contrast_range = (0.9, 1.1)
+# 对比度调整范围，推荐: (0.9, 1.1)
+
+# ---- 随机种子（可选）----
+# random_state = 42
+
+# ============================================
+# 配置变体建议:
+# 
+# 1. 保守配置（推荐用于baseline）:
+#    augment_types = ['flip', 'noise']
+#    augment_probability = 0.5
+#
+# 2. 激进配置（数据量大时使用）:
+#    augment_types = ['flip', 'noise', 'elastic', 'intensity']
+#    augment_probability = 0.7
+#    elastic_alpha = 15.0
+#
+# 3. 快速配置（无elastic，训练快）:
+#    augment_types = ['flip', 'noise', 'intensity']
+#    augment_probability = 0.5
+#
+# ============================================

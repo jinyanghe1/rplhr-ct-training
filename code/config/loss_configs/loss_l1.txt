@@ -1,0 +1,5 @@
+# L1 Loss 配置文件
+# 基础像素级损失，简单稳定
+
+loss_type=l1
+reduction=mean

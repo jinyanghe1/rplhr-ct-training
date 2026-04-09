@@ -1,0 +1,6 @@
+# 随机噪声增强配置
+# 添加高斯噪声，增强模型鲁棒性
+
+enabled = True
+noise_prob = 0.3
+noise_std = 0.01

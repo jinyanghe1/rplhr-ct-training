@@ -1,0 +1,6 @@
+# EAGLE3D Loss 配置
+# 3D边缘感知损失，保留边缘细节
+# 公式: L1 + alpha * Edge_Loss
+
+type = 'EAGLE3D'
+alpha = 0.1

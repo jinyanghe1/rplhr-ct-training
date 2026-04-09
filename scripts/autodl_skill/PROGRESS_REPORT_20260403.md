@@ -10,14 +10,16 @@
 
 ### 1.1 EMA问题修复
 
-**问题描述**: 启用EMA后PSNR从~17dB下降到~9dB
+**问题描述**: 启用EMA后PSNR从\~17dB下降到~9dB。本来应该在四月一号的基础上有进一步提升，但模型反而在验证集上失效了。
 
 **根因分析**:
+
 1. EMA衰减系数 `ema_decay=0.999` 过高，导致EMA模型更新极慢
 2. Epoch 10时EMA模型仍99%接近随机初始化状态
 3. 验证时错误地使用未充分训练的EMA模型
 
 **修复方案** (见 `docs/guides/EMA_TROUBLESHOOTING.md`):
+
 ```python
 # 配置修改
 ema_decay = 0.995  # 从0.999降低，加快收敛
@@ -28,6 +30,7 @@ val_net = ema_net if (use_ema and ema_net is not None and tmp_epoch > ema_warmup
 ```
 
 **修复效果**:
+
 | 指标 | 修复前 | 修复后 |
 |------|--------|--------|
 | PSNR@Epoch1 | 0.5 dB | **17.19 dB** |
@@ -37,6 +40,7 @@ val_net = ema_net if (use_ema and ema_net is not None and tmp_epoch > ema_warmup
 ### 1.2 EMA训练结果 (EXP_005)
 
 **实验配置**:
+
 - Loss: L1 Loss
 - Optimizer: AdamW (lr=0.0003)
 - EMA: decay=0.995, warmup=10 epochs
@@ -44,6 +48,7 @@ val_net = ema_net if (use_ema and ema_net is not None and tmp_epoch > ema_warmup
 - Data Augmentation: Random Flip (prob=0.5)
 
 **训练曲线**:
+
 | Epoch | PSNR | SSIM | 说明 |
 |-------|------|------|------|
 | 1 | 17.19 | 0.477 | warmup期 |
@@ -117,6 +122,11 @@ ema_param = ema_decay * ema_param + (1 - ema_decay) * param
 | 3D Coordinate Attention | +0.3 dB | ⭐⭐⭐ |
 | RCAB | +0.5 dB | ⭐⭐⭐ |
 | Residual Scaling | 稳定训练 | ⭐ |
+
+尝试加入[EMANet](https://zhuanlan.zhihu.com/p/78018142)。
+EMANet的思路和SwinIR那篇论文是比较类似  的，主要是在注意力机制的基础上增加对局部细节+整体联系的关注，从而提升模型性能。
+根据这篇论文的介绍，EMANet的模块化做的比较好，所以可以尝试将其加入到SwinIR中，看看效果如何。
+![alt text](image.png)
 
 详见: `docs/roadmap/ROADMAP.md`
 

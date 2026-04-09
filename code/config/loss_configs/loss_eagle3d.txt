@@ -1,0 +1,9 @@
+# EAGLE3D Loss 配置文件
+# Edge-Aware Gradient Local Enhancement
+# 用于3D CT医学影像超分辨率，强调边缘保持
+
+loss_type=eagle3d
+
+# 边缘损失权重，默认 0.1
+# 较大的 alpha 会更强调边缘保留
+alpha=0.1

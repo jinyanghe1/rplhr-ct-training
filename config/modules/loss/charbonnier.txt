@@ -1,0 +1,6 @@
+# Charbonnier Loss 配置
+# Pseudo-Huber 损失，比 L1/L2 更稳定，对异常值更鲁棒
+# 论文: "Deep Laplacian Pyramid Networks for Fast and Accurate Super-Resolution"
+
+type = 'Charbonnier'
+eps = 1e-6

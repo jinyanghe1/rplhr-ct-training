@@ -1,0 +1,23 @@
+########## training_config ##########
+### Adam + CosineAnnealingLR (基线配置)
+
+# 优化器配置
+optim_type = 'Adam'  # 优化器类型: 'Adam', 'AdamW', 'SGD'
+lr = 0.0002          # 学习率
+weight_decay = 0.0   # 权重衰减
+
+# 学习率调度器配置
+scheduler_type = 'cosine'  # 调度器类型: 'cosine', 'plateau', 'step', 'none'
+Tmax = 100                 # Cosine 周期
+lr_gap = 1000              # 最小学习率 = lr / lr_gap
+warmup_epochs = 0          # Warmup 轮数 (0 表示不使用)
+
+# EMA 配置
+use_ema = False      # 是否使用 EMA
+ema_decay = 0.999    # EMA 衰减系数
+
+# 梯度裁剪配置
+use_grad_clip = False      # 是否使用梯度裁剪
+grad_clip_norm = 1.0       # 梯度范数上限
+
+########## end ##########

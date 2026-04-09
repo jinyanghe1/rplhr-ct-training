@@ -1,0 +1,43 @@
+# ============================================
+# 数据增强配置：激进增强
+# Augmentation Config: Aggressive
+# ============================================
+# 本配置启用所有增强类型，适用于：
+# - 大数据集训练
+# - 追求最大泛化能力
+# - 有足够计算资源
+# ============================================
+
+# ---- 基础设置 ----
+use_augmentation = True
+augment_types = ['flip', 'noise', 'elastic', 'intensity', 'rotate90']
+augment_probability = 0.7
+
+# ---- 翻转增强参数 ----
+flip_axis = ['horizontal', 'vertical', 'depth']
+
+# ---- 噪声增强参数 ----
+noise_type = 'both'
+noise_sigma = 0.02
+noise_scale = 1.5
+
+# ---- 弹性形变参数 ----
+elastic_alpha = 15.0
+elastic_sigma = 4.0
+
+# ---- 强度变换参数 ----
+intensity_operations = ['scale', 'shift', 'gamma', 'contrast']
+intensity_scale_range = (0.85, 1.15)
+intensity_shift_range = (-50, 50)
+intensity_gamma_range = (0.85, 1.15)
+intensity_contrast_range = (0.85, 1.15)
+
+# ---- 随机种子 ----
+# random_state = 42
+
+# ============================================
+# 注意: 此配置计算量较大，建议：
+# - 使用GPU加速
+# - 适当减少batch_size
+# - 监控训练时间
+# ============================================

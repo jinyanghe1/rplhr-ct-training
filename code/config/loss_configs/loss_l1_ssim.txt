@@ -1,0 +1,11 @@
+# L1 + SSIM 组合 Loss 配置文件
+# 结合像素级损失和结构相似性损失
+# 广泛用于超分辨率任务
+
+loss_type=l1_ssim
+
+# SSIM 损失权重，默认 0.1
+alpha=0.1
+
+# SSIM 窗口大小，默认 7
+ssim_window_size=7

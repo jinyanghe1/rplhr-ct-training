@@ -1,0 +1,13 @@
+# AdamW + EMA 训练配置
+# 使用 AdamW 优化器和 EMA (指数移动平均) 提升模型稳定性
+
+optimizer = 'AdamW'
+lr = 0.0003
+wd = 0.0001
+scheduler = 'ReduceLROnPlateau'
+patience = 15
+use_warmup = True
+warmup_epochs = 10
+use_grad_clip = False
+use_ema = True
+ema_decay = 0.999

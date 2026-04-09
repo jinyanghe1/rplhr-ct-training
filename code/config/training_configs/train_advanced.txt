@@ -1,0 +1,31 @@
+########## training_config ##########
+### 高级训练配置: AdamW + EMA + GradClip + Warmup
+
+# 优化器配置
+optim_type = 'AdamW'  # 优化器类型: 'Adam', 'AdamW', 'SGD'
+lr = 0.0002           # 学习率
+weight_decay = 0.0001 # 权重衰减
+
+# 学习率调度器配置
+scheduler_type = 'cosine'  # 调度器类型: 'cosine', 'plateau', 'step', 'none'
+Tmax = 100                 # Cosine 周期 (总 epoch 数)
+lr_gap = 1000              # 最小学习率 = lr / lr_gap
+warmup_epochs = 5          # Warmup 轮数 (线性增加学习率)
+
+# EMA 配置
+use_ema = True       # 启用 EMA
+ema_decay = 0.999    # EMA 衰减系数
+use_ema_for_val = True  # 使用 EMA 模型进行验证
+
+# 梯度裁剪配置
+use_grad_clip = True       # 启用梯度裁剪
+grad_clip_norm = 1.0       # 梯度 L2 范数上限
+grad_clip_type = 'norm'    # 裁剪类型: 'norm', 'value', 'adaptive'
+
+# 训练参数
+epoch = 200          # 总训练轮数
+start_epoch = 1      # 起始 epoch
+gap_epoch = 200      # 早停 gap
+gap_val = 5          # 验证间隔
+
+########## end ##########

@@ -1,0 +1,7 @@
+# 轻量级增强配置
+# 适合小数据集，防止过拟合
+
+enabled = True
+flip_prob = 0.3
+noise_prob = 0.1
+noise_std = 0.005

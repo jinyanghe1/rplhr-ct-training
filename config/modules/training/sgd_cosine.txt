@@ -1,0 +1,15 @@
+# SGD + Cosine 训练配置
+# 使用 SGD 配合余弦退火调度器
+# 适合大规模数据集
+
+optimizer = 'SGD'
+lr = 0.01
+wd = 0.0005
+momentum = 0.9
+scheduler = 'CosineAnnealingLR'
+Tmax = 200
+lr_gap = 1000
+use_warmup = True
+warmup_epochs = 5
+use_grad_clip = False
+use_ema = False

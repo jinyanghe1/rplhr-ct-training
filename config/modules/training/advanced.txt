@@ -1,0 +1,15 @@
+# 高级训练配置
+# 结合 Warmup、Cosine Annealing、Gradient Clipping
+
+optimizer = 'AdamW'
+lr = 0.0003
+wd = 0.0001
+scheduler = 'CosineAnnealingLR'
+Tmax = 200
+lr_gap = 1000
+use_warmup = True
+warmup_epochs = 10
+use_grad_clip = True
+grad_clip_norm = 1.0
+use_ema = True
+ema_decay = 0.999

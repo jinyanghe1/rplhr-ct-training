@@ -1,0 +1,7 @@
+# L1 + SSIM Loss 配置 (3D版本)
+# 结合像素级和结构级损失
+# 公式: L1 + alpha * (1 - SSIM)
+
+type = 'L1_SSIM'
+alpha = 0.1
+ssim_window_size = 7

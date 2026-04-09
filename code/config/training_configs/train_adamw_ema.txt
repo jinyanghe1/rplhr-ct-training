@@ -1,0 +1,24 @@
+########## training_config ##########
+### AdamW + EMA (推荐配置)
+
+# 优化器配置
+optim_type = 'AdamW'  # 优化器类型: 'Adam', 'AdamW', 'SGD'
+lr = 0.0002           # 学习率
+weight_decay = 0.0001 # 权重衰减
+
+# 学习率调度器配置
+scheduler_type = 'cosine'  # 调度器类型: 'cosine', 'plateau', 'step', 'none'
+Tmax = 100                 # Cosine 周期
+lr_gap = 1000              # 最小学习率 = lr / lr_gap
+warmup_epochs = 0          # Warmup 轮数
+
+# EMA 配置
+use_ema = True       # 启用 EMA
+ema_decay = 0.999    # EMA 衰减系数
+use_ema_for_val = True  # 使用 EMA 模型进行验证
+
+# 梯度裁剪配置
+use_grad_clip = False      # 不使用梯度裁剪
+grad_clip_norm = 1.0       # 梯度范数上限
+
+########## end ##########

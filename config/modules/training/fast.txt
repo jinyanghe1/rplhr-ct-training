@@ -1,0 +1,12 @@
+# 快速训练配置
+# 用于快速验证实验想法
+
+optimizer = 'AdamW'
+lr = 0.001
+wd = 0.0001
+scheduler = 'StepLR'
+step_size = 20
+gamma = 0.5
+use_warmup = False
+use_grad_clip = False
+use_ema = False

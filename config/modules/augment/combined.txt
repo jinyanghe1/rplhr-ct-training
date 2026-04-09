@@ -1,0 +1,9 @@
+# 组合增强配置
+# 结合翻转、噪声等多种增强策略
+
+enabled = True
+flip_prob = 0.5
+noise_prob = 0.2
+noise_std = 0.01
+rotation_prob = 0.1
+max_rotation_angle = 15

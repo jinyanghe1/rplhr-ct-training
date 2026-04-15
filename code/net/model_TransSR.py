@@ -1,5 +1,6 @@
 # full assembly of the sub-parts to form the complete net
 # Ratio-Aware version: out_z, slice_sequence, positional encoding 动态计算
+# v2: Added Z-Axis Attention + Residual Dense Connection in decoder
 
 import torch.nn.functional as F
 import math
@@ -7,6 +8,7 @@ import torch
 import einops
 from timm.models.layers import trunc_normal_
 from .swin_utils import *
+from .z_axis_modules import ZEnhancedDecoderBlock
 
 def positionalencoding1d(d_model, length, ratio):
     """
@@ -74,7 +76,8 @@ class TVSRN(nn.Module):
             torch.zeros(self.max_out_z - opt.c_z, self.c, opt.c_y, opt.c_x)
         )
 
-        # positional encoding 和 slice_sequence 移到 forward 动态计算
+        # Use z-axis attention (configurable)
+        self.use_z_attn = getattr(opt, 'use_z_attn', True)
         # endregion
 
         # region
@@ -92,7 +95,7 @@ class TVSRN(nn.Module):
         # 使用默认 ratio 初始化 Decoder (权重可在 forward 中被不同 out_z 使用)
         default_out_z = (opt.c_z - 1) * opt.ratio + 1
 
-        # Decoder_I: embed_dim = c * max_out_z (支持所有 ratio ≤ max_ratio)
+        # Decoder_I: embed_dim = c * max_out_z (支持所有 ratio <= max_ratio)
         # 当 forward 使用较小 ratio 时，cal_z 中零填充到 max_out_z
         # NOTE: Decoder_T 的 img_size 保持 default_out_z (Swin 运行时自适应，无需改动)
 
@@ -107,6 +110,14 @@ class TVSRN(nn.Module):
                                             depths=D_I_depths, num_heads=D_I_num_heads, window_size=I_win,
                                             mlp_ratio=mlp_ratio)''' % (i))
         # endregion
+
+        ######################## Z-Axis Enhancement ########################
+        # Z-axis cross-attention + residual dense connection after each decoder stage
+        if self.use_z_attn:
+            for i in range(1, opt.TD_s + 1):
+                # out_z_channels = c * max_out_z (matches Decoder_I output dim)
+                out_z_channels = self.c * self.max_out_z
+                exec('''self.z_enhance%s = ZEnhancedDecoderBlock(c=self.c, max_out_z=self.max_out_z, out_z_channels=out_z_channels)''' % (i))
 
         ######################## MAE Rec ########################
         self.conv_before_upsample = nn.Sequential(nn.Conv3d(self.c, 16, 1, 1, 0),
@@ -147,7 +158,7 @@ class TVSRN(nn.Module):
         When out_z < max_out_z, pad extra z-slices with zeros before processing,
         then trim back after. This ensures Decoder_I's embed_dim always matches."""
         if out_z < self.max_out_z:
-            # x: (1, c*out_z, cy, cx) → pad z to max_out_z
+            # x: (1, c*out_z, cy, cx) -> pad z to max_out_z
             x_r = x.reshape(1, out_z, self.c, opt.c_y, opt.c_x)
             pad_z = self.max_out_z - out_z
             x_padded = F.pad(x_r, (0, 0, 0, 0, 0, 0, 0, pad_z))  # pad z-dim at end
@@ -202,6 +213,7 @@ class TVSRN(nn.Module):
         # Encoder
         x_patch = einops.rearrange(x, 'B C (nH hp) (nW wp) -> B (C hp wp) nH nW', wp=self.E_patch, hp=self.E_patch)
         x_LP = self.LP(x_patch)
+
         x_SF = einops.rearrange(x_LP, 'B (C hp wp) nH nW -> B C (nH hp) (nW wp)', wp=self.E_patch, hp=self.E_patch)
         x_Eout = self.Encoder.forward_features(x_SF) + x_SF
 
@@ -231,6 +243,10 @@ class TVSRN(nn.Module):
         for i in range(1, opt.TD_s + 1):
             trans_feature = eval('self.cal_xy(trans_feature, self.Decoder_T%s)' % i) + trans_feature
             trans_feature = eval('self.cal_z(trans_feature, self.Decoder_I%s, out_z)' % i) + trans_feature
+
+            # ========== Z-Axis Enhancement ==========
+            if self.use_z_attn:
+                trans_feature = eval('self.z_enhance%s(trans_feature, out_z)' % i) + trans_feature
 
         trans_output = trans_feature + trans_input.reshape(1, -1, opt.c_y, opt.c_x)
         trans_output = trans_output.reshape(1, self.c, -1, opt.c_y, opt.c_x)

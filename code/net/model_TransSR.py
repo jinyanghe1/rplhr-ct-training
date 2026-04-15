@@ -124,6 +124,13 @@ class TVSRN(nn.Module):
                                                   nn.LeakyReLU(inplace=True))
         self.conv_last = nn.Conv3d(16, 1, 1, 1, 0)
 
+        ################### Gaussian Blur (z-axis) ###################
+        self.use_recon_blur = getattr(opt, 'use_recon_blur', False)
+        if self.use_recon_blur:
+            blur_kz = getattr(opt, 'recon_blur_kz', 3)
+            blur_sigma = getattr(opt, 'recon_blur_sigma', 0.5)
+            self.recon_blur = self._build_z_gaussian(blur_kz, blur_sigma)
+
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
@@ -134,6 +141,22 @@ class TVSRN(nn.Module):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
+
+    @staticmethod
+    def _build_z_gaussian(kernel_z, sigma):
+        """Build fixed-weight z-axis Gaussian blur (no grad, inference-time smoothing)."""
+        import numpy as np
+        half = kernel_z // 2
+        x = np.arange(-half, half + 1, dtype=np.float32)
+        kernel_1d = np.exp(-x ** 2 / (2 * sigma ** 2))
+        kernel_1d /= kernel_1d.sum()
+        # Shape: (1, 1, kz, 1, 1) — only blurs along z
+        kernel = torch.from_numpy(kernel_1d).reshape(1, 1, kernel_z, 1, 1)
+        conv = nn.Conv3d(1, 1, kernel_size=(kernel_z, 1, 1),
+                         padding=(half, 0, 0), bias=False)
+        conv.weight.data.copy_(kernel)
+        conv.weight.requires_grad = False
+        return conv
 
     def _build_slice_sequence(self, c_z, out_z, ratio, device):
         """
@@ -251,6 +274,10 @@ class TVSRN(nn.Module):
         trans_output = trans_feature + trans_input.reshape(1, -1, opt.c_y, opt.c_x)
         trans_output = trans_output.reshape(1, self.c, -1, opt.c_y, opt.c_x)
         x_out = self.conv_last(self.conv_before_upsample(trans_output))
+
+        # ========== Optional z-axis Gaussian blur (inference smoothing) ==========
+        if self.use_recon_blur:
+            x_out = self.recon_blur(x_out)
 
         # ========== 统一裁剪逻辑 ==========
         # crop_margin 与数据加载对齐: mask_z_s = z_s * ratio + crop_margin

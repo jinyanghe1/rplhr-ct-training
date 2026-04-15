@@ -40,10 +40,19 @@ def cal_mse(img1, img2):
     return float(np.mean((img1 - img2) ** 2))
 
 def cal_ssim_numpy(img1, img2):
-    """Compute mean SSIM using skimage (CPU). Falls back to slice-level torch SSIM if unavailable."""
+    """
+    Compute mean SSIM over 3D volume using per-axial-slice 2D SSIM.
+    MUST match val.py's method (non_model.cal_ssim_volume) for fair comparison.
+    NOT using skimage 3D SSIM, which gives different (incomparable) results.
+    """
     try:
         from skimage.metrics import structural_similarity
-        return structural_similarity(img1, img2, data_range=1.0)
+        # Per-slice 2D SSIM, averaged — matches val.py's evaluation protocol
+        ssim_vals = []
+        for i in range(img1.shape[0]):
+            s = structural_similarity(img1[i], img2[i], data_range=1.0)
+            ssim_vals.append(s)
+        return float(np.mean(ssim_vals))
     except ImportError:
         pass
     # Fallback: torch-based per-slice SSIM

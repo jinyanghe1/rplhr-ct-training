@@ -10,11 +10,26 @@ from make_dataset import val_Dataset
 from net import model_TransSR
 
 import numpy as np
+from scipy.signal import windows as scipy_windows
 
 from tqdm import tqdm
 import SimpleITK as sitk
 import warnings
 warnings.filterwarnings("ignore")
+
+
+def _z_blend_weight(D, blend_type='gaussian'):
+    """Build 1D z-blending weight for overlap stitching.
+    Shape: (D, 1, 1) — broadcasts over (y, x).
+    """
+    if blend_type == 'gaussian':
+        w = scipy_windows.gaussian(D, std=D / 4.0)
+    elif blend_type == 'triang':
+        w = scipy_windows.triang(D)
+    else:  # uniform (same as old overwrite)
+        w = np.ones(D)
+    w = np.maximum(w, 1e-6).astype(np.float32)
+    return w[:, np.newaxis, np.newaxis]
 
 import resource
 rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
@@ -127,10 +142,12 @@ def val(**kwargs):
             x = x.squeeze().data.numpy()
             y = y.squeeze().data.numpy()
 
-            y_pre = np.zeros_like(y)
+            y_pre_sum = np.zeros_like(y, dtype=np.float32)
+            weight_sum = np.zeros_like(y, dtype=np.float32)
             pos_list = pos_list.data.numpy()[0]
             val_ratio = 4  # val.py 固定 ratio=4
             crop_margin = getattr(opt, 'crop_margin', 3)
+            blend_type = getattr(opt, 'val_blend', 'gaussian')
 
             for pos_idx, pos in enumerate(pos_list):
                 tmp_x = x[pos_idx]
@@ -146,9 +163,12 @@ def val(**kwargs):
                 pos_y_s = tmp_pos_y
                 pos_x_s = tmp_pos_x
 
-                y_pre[pos_z_s: pos_z_s+D, pos_y_s:pos_y_s + opt.vc_y, pos_x_s:pos_x_s+opt.vc_x] = y_for_psnr
+                wz = _z_blend_weight(D, blend_type)
+                y_pre_sum[pos_z_s: pos_z_s+D, pos_y_s:pos_y_s + opt.vc_y, pos_x_s:pos_x_s+opt.vc_x] += y_for_psnr * wz
+                weight_sum[pos_z_s: pos_z_s+D, pos_y_s:pos_y_s + opt.vc_y, pos_x_s:pos_x_s+opt.vc_x] += wz
 
             del tmp_y_pre, tmp_x
+            y_pre = y_pre_sum / np.maximum(weight_sum, 1e-8)
 
             y_pre = y_pre[val_ratio:-val_ratio]
             y = y[val_ratio:-val_ratio]

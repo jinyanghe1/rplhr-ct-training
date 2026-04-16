@@ -269,7 +269,8 @@ class TVSRN(nn.Module):
 
             # ========== Z-Axis Enhancement ==========
             if self.use_z_attn:
-                trans_feature = eval('self.z_enhance%s(trans_feature, out_z)' % i) + trans_feature
+                # z_enhance returns feature with internal skip; do NOT add + trans_feature
+                trans_feature = eval('self.z_enhance%s(trans_feature, out_z)' % i)
 
         trans_output = trans_feature + trans_input.reshape(1, -1, opt.c_y, opt.c_x)
         trans_output = trans_output.reshape(1, self.c, -1, opt.c_y, opt.c_x)
